@@ -1,8 +1,8 @@
 {
   "brand_name": "TheDrunkBots",
   "admin_password": "admin123",
-  "mongo_uri": "mongodb+srv://shauryasharma9940_db_user:hi1OxTU3GdXFtRLf@g2sv2.fnvvosz.mongodb.net/?appName=G2SV2",
-  "telegram_bot_token": "8958607022:AAHvO7wuHe3K-vFdZY_AN2nH6DXiSgiY-FE",
+  "mongo_uri": "mongodb+srv://elevatexoiii_db_user:JrK2ILYhp1gzuovK@boldix.qtvcnny.mongodb.net",
+  "telegram_bot_token": "8812534393:AAHw-kiTkWGNlBh8awm0PY3a6ZcUoFp-_R8",
   "telegram_api_id": 25396020,
   "telegram_api_hash": "228ea638bed51dd4ae3cc9e4e51e198c",
   "owner_id": 8584220782,
