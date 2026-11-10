@@ -1,0 +1,24 @@
+services:
+  thedrunkbots:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: thedrunkbots-bypasser
+    restart: always
+    ports:
+      - "${PORT:-8080}:8080"
+    shm_size: "4gb"
+    init: true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      G2S_MAX_WORKERS: "10"
+      G2S_SOLVER_CONCURRENCY: "12"
+      G2S_LOCAL_SOLVER_WORKERS: "12"
+      G2S_SOLVER_URL: "https://cf.vltcx.eu.cc"
+      DBUS_SESSION_BUS_ADDRESS: "disabled:"
+      NODE_OPTIONS: "--no-warnings"

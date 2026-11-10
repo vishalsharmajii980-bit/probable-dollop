@@ -1,0 +1,2918 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TheDrunkBots — Admin Control Panel</title>
+<style>
+  :root {
+    --bg: #080b11;
+    --bg2: #0d121c;
+    --panel: #121826;
+    --panel-hover: #171f31;
+    --line: #222c42;
+    --text: #eef2ff;
+    --mute: #8c9bb8;
+    --acc: #7c5cff;
+    --acc2: #00d4ff;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --warn: #f59e0b;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at 15% 0%, #17153a 0%, var(--bg) 42%), var(--bg);
+    color: var(--text);
+    font: 14.5px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  a { color: #67e8f9; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  /* Login View */
+  #loginView {
+    display: none;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 420px;
+    background: rgba(18, 24, 38, 0.92);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 32px 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    text-align: center;
+  }
+  .brand-logo {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    margin: 0 auto 14px;
+    background: linear-gradient(135deg, var(--acc), var(--acc2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    box-shadow: 0 10px 25px rgba(124, 92, 255, 0.35);
+  }
+
+  /* Main App Layout */
+  #appView { display: none; }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: rgba(8, 11, 17, 0.88);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .brand-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 0.3px;
+  }
+  .brand-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: rgba(124, 92, 255, 0.18);
+    border: 1px solid rgba(124, 92, 255, 0.45);
+    color: #c4b5fd;
+    font-weight: 600;
+  }
+  .top-pills {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+  .pill {
+    font-size: 12px;
+    padding: 4px 11px;
+    border-radius: 99px;
+    border: 1px solid var(--line);
+    background: var(--bg2);
+    color: var(--mute);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pill.ok { color: #4ade80; border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.08); }
+  .pill.err { color: #f87171; border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); }
+  .pill.warn { color: #fbbf24; border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.08); }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 70px; }
+
+  /* Navigation Tabs */
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    background: var(--panel);
+    color: var(--mute);
+    border: 1px solid var(--line);
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 13.5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { color: var(--text); border-color: #364566; }
+  .tab-btn.active {
+    background: linear-gradient(135deg, var(--acc), #5b3df5);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 18px rgba(124, 92, 255, 0.3);
+  }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .stat-box {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .stat-label { color: var(--mute); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-val { font-size: 24px; font-weight: 800; margin-top: 4px; color: var(--text); }
+  .stat-sub { font-size: 12px; color: var(--mute); margin-top: 2px; }
+
+  /* Cards & Forms */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .card-title { font-size: 16px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12.5px; font-weight: 600; color: var(--mute); margin-bottom: 5px; }
+  input[type=text], input[type=password], input[type=number], textarea, select {
+    width: 100%;
+    background: var(--bg2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: 13.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    transition: border-color 0.15s;
+  }
+  textarea { min-height: 82px; resize: vertical; }
+  input:focus, textarea:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.22); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button {
+    border: 0;
+    border-radius: 10px;
+    padding: 9px 16px;
+    font-weight: 600;
+    font-size: 13.5px;
+    cursor: pointer;
+    background: linear-gradient(135deg, var(--acc), #5b3df5);
+    color: #fff;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  button:hover { opacity: 0.93; }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.ghost { background: var(--bg2); border: 1px solid var(--line); color: var(--text); }
+  button.ghost:hover { border-color: #3b4b6e; }
+  button.danger { background: rgba(239, 68, 68, 0.16); border: 1px solid rgba(239, 68, 68, 0.45); color: #fca5a5; }
+  button.ok-btn { background: rgba(34, 197, 94, 0.16); border: 1px solid rgba(34, 197, 94, 0.45); color: #86efac; }
+  button.sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+
+  .chk { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text); cursor: pointer; user-select: none; }
+  .chk input { width: 16px; height: 16px; accent-color: var(--acc); }
+
+  /* Modern Toggle Switch */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background-color: #263147;
+    border: 1px solid #364566;
+    transition: .2s;
+    border-radius: 24px;
+  }
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: #94a3b8;
+    transition: .2s;
+    border-radius: 50%;
+  }
+  .switch input:checked + .slider {
+    background: linear-gradient(135deg, #10b981, #059669);
+    border-color: #34d399;
+  }
+  .switch input:checked + .slider:before {
+    transform: translateX(20px);
+    background-color: #fff;
+  }
+
+  /* Shorteners Toggle Grid */
+  .shortener-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .shortener-item {
+    background: var(--bg2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 11px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .shortener-item.on {
+    border-color: rgba(34, 197, 94, 0.5);
+    background: rgba(34, 197, 94, 0.06);
+  }
+  .shortener-name { font-weight: 700; font-size: 13.5px; color: var(--text); }
+  .shortener-dom { font-size: 11.5px; color: var(--mute); }
+
+  /* Tables */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--mute); font-weight: 600; padding: 10px 8px; border-bottom: 1px solid var(--line); font-size: 12px; text-transform: uppercase; }
+  td { padding: 10px 8px; border-bottom: 1px solid rgba(34, 44, 66, 0.65); vertical-align: top; }
+  tr:hover td { background: rgba(255, 255, 255, 0.015); }
+  .brk { word-break: break-all; }
+
+  /* Bypass Job Output */
+  .job { border: 1px solid var(--line); border-radius: 12px; margin-top: 14px; overflow: hidden; background: var(--bg2); }
+  .job-h { display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #0f1522; font-size: 13px; }
+  .job-h .src { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .st { font-weight: 700; font-size: 12px; }
+  .st.running { color: var(--warn); }
+  .st.ok { color: var(--ok); }
+  .st.err { color: var(--err); }
+  .log { margin: 0; padding: 10px 14px; max-height: 200px; overflow: auto; font-size: 12px; color: #9fb0cc; white-space: pre-wrap; border-top: 1px solid var(--line); }
+  .res { padding: 14px; border-top: 1px solid var(--line); background: rgba(34, 197, 94, 0.07); }
+  .res.err { background: rgba(239, 68, 68, 0.09); color: #fca5a5; }
+
+  .toast {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    background: #1e293b;
+    color: #fff;
+    border: 1px solid var(--acc);
+    padding: 11px 18px;
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    font-size: 13.5px;
+    font-weight: 600;
+    z-index: 999;
+    display: none;
+  }
+  .spin {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--warn);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: r 0.75s linear infinite;
+  }
+  @keyframes r { to { transform: rotate(360deg); } }
+
+  /* Autonomous AI Engineer Console */
+  .ai-console {
+    background: #0a0e17;
+    border: 1px solid #283552;
+    border-radius: 14px;
+    overflow: hidden;
+    margin-top: 14px;
+  }
+  .ai-console-h {
+    background: linear-gradient(90deg, #131b2e, #1a1536);
+    padding: 12px 16px;
+    border-bottom: 1px solid #283552;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .ai-stream {
+    padding: 14px;
+    max-height: 540px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ai-ev {
+    border: 1px solid #1f2b42;
+    border-radius: 10px;
+    padding: 10px 13px;
+    background: #0f1624;
+    font-size: 13px;
+  }
+  .ai-ev.thinking {
+    border-color: rgba(168, 85, 247, 0.45);
+    background: rgba(124, 58, 237, 0.08);
+  }
+  .ai-ev.tool_call {
+    border-color: rgba(56, 189, 248, 0.4);
+    background: rgba(14, 165, 233, 0.07);
+  }
+  .ai-ev.test_step {
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.06);
+  }
+  .ai-ev.code_diff {
+    border-color: rgba(52, 211, 153, 0.45);
+    background: rgba(16, 185, 129, 0.07);
+  }
+  .ai-ev.success {
+    border-color: rgba(34, 197, 94, 0.6);
+    background: rgba(34, 197, 94, 0.12);
+  }
+  .ai-ev.error {
+    border-color: rgba(239, 68, 68, 0.6);
+    background: rgba(239, 68, 68, 0.11);
+  }
+  .ai-ev-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-weight: 700;
+    margin-bottom: 5px;
+  }
+  .ai-ev-pre {
+    margin: 6px 0 0;
+    padding: 9px 11px;
+    background: #070b12;
+    border: 1px solid #1b2438;
+    border-radius: 8px;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #cbd5e1;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== LOGIN VIEW ==================== -->
+<div id="loginView">
+  <div class="login-card">
+    <div class="brand-logo">🍹</div>
+    <h2 style="margin:0 0 6px;font-size:22px" id="loginBrand">TheDrunkBots</h2>
+    <p style="color:var(--mute);margin:0 0 22px;font-size:13.5px">Admin Control Panel • Protected Access</p>
+    <form id="loginForm">
+      <div class="field" style="text-align:left">
+        <label>Admin Password</label>
+        <input type="password" id="loginPass" placeholder="Enter admin password…" required autofocus>
+      </div>
+      <div id="loginErr" style="color:var(--err);font-size:13px;margin-bottom:10px;display:none"></div>
+      <button type="submit" style="width:100%;padding:11px">Unlock Admin Panel →</button>
+    </form>
+  </div>
+</div>
+
+<!-- ==================== MAIN ADMIN APP ==================== -->
+<div id="appView">
+  <header class="topbar">
+    <div class="brand-title">
+      <span style="font-size:22px">🍹</span>
+      <span id="topBrand">TheDrunkBots</span>
+      <span class="brand-badge">ADMIN PANEL v2</span>
+    </div>
+    <div class="top-pills">
+      <span class="pill ok" id="pillAI">🧠 AI Healer: Active</span>
+      <span class="pill" id="pillMongo">MongoDB: …</span>
+      <span class="pill" id="pillBot">Bot: …</span>
+      <span class="pill" id="pillProxy">Tunnel: …</span>
+      <span class="pill" id="pillSolver">Solver: …</span>
+      <button class="danger sm" id="restartBotBtn" title="Pull latest MongoDB code &amp; restart Bot + Browser Workers">🔄 Restart Bot</button>
+      <button class="ghost sm" id="logoutBtn">Logout</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="tabDash">📊 Overview &amp; Tunnel</button>
+      <button class="tab-btn" data-tab="tabPremium">💎 Premium &amp; Auto-Pay (<span id="cntPremium">0</span>)</button>
+      <button class="tab-btn" data-tab="tabAI">🧠 AI Engineer &amp; Code Sync</button>
+      <button class="tab-btn" data-tab="tabProtected">🛡 Protected Bots (<span id="cntProtected">11</span>)</button>
+      <button class="tab-btn" data-tab="tabCache">🗄 Cloud Cache (<span id="cntCache">0</span>)</button>
+      <button class="tab-btn" data-tab="tabBot">🤖 Bot &amp; Force-Sub (<span id="cntFsub">0</span>)</button>
+      <button class="tab-btn" data-tab="tabLogs">🚨 Error Logs (<span id="cntLogs">0</span>)</button>
+      <button class="tab-btn" data-tab="tabUsers">👥 Users &amp; Broadcast (<span id="cntUsers">0</span>)</button>
+      <button class="tab-btn" data-tab="tabSettings">⚙️ Engine &amp; Security</button>
+    </nav>
+
+    <!-- ================= TAB 1: DASHBOARD & TUNNEL ================= -->
+    <section class="tab-pane active" id="tabDash">
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Total Bypassed</div>
+          <div class="stat-val" id="stBypassed">0</div>
+          <div class="stat-sub">Direct links solved</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Cloud Cache Hits</div>
+          <div class="stat-val" id="stCacheHits">0</div>
+          <div class="stat-sub"><span id="stCacheCount">0</span> links cached</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Telegram Users</div>
+          <div class="stat-val" id="stUsers">0</div>
+          <div class="stat-sub" id="stBotName">Bot status</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Error Reports</div>
+          <div class="stat-val" id="stErrors">0</div>
+          <div class="stat-sub">Synced with Telegram</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Connected Tunnels</div>
+          <div class="stat-val" id="stTunnelDevs">0 / 0</div>
+          <div class="stat-sub" id="stTunnelSub">Online / Registered</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Shorteners on Tunnel</div>
+          <div class="stat-val" id="stShortenersOn">0 / 20</div>
+          <div class="stat-sub">Default: Disabled (Direct)</div>
+        </div>
+      </div>
+
+      <!-- Multi-Device Tunnel Pool (Android Phones & PC Software) -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">📱💻 Connected Tunnel Devices (Android &amp; PC Auto-Sync Pool)</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              Run the Android App or PC Software on multiple phones/laptops. Select which device is <b>Active (Primary)</b>; other enabled devices stay in <b>Standby (Fallback)</b> mode with zero conflict.
+            </div>
+          </div>
+          <div class="row">
+            <span class="pill" id="devicesPoolBadge">0 online</span>
+            <button class="ok-btn sm" id="dlAndroidApkBtn">📱 Download Android APK</button>
+            <button class="ghost sm" id="dlPcTunnelBtn">💻 Download PC Tunnel (.zip)</button>
+            <button class="ghost sm" id="refreshDevicesBtn">🔄 Refresh</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Device (Phone / PC)</th>
+                <th>Public Exit IP &amp; ISP</th>
+                <th>Mode / Requests</th>
+                <th>Role &amp; Status</th>
+                <th>Use Tunnel (ON/OFF)</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tunnelDevicesTableBody">
+              <tr><td colspan="6" style="color:var(--mute);text-align:center;padding:20px">Loading tunnel devices…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Per-Shortener Tunnel Routing Toggles -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">🔀 Per-Shortener Tunnel Routing (Live ON / OFF Toggles)</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              By default, tunnel usage is <b>OFF (Direct Connection)</b> for all shorteners. Toggle any shortener <b>ON</b> to route its bypasses through your active tunnel device immediately.
+            </div>
+          </div>
+          <div class="row">
+            <span class="pill" id="shortenersBadge">0 / 20 using tunnel</span>
+            <button class="ok-btn sm" id="enableAllShortenersBtn">✅ Enable All</button>
+            <button class="danger sm" id="disableAllShortenersBtn">🚫 Disable All (Default)</button>
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <input type="text" id="customShortenerDomain" placeholder="Add custom shortener domain (e.g. newshort.in)…" style="max-width:300px">
+          <input type="text" id="customShortenerName" placeholder="Display Name (optional)" style="max-width:220px">
+          <button class="ghost sm" id="addCustomShortenerBtn">➕ Add Shortener</button>
+        </div>
+        <div class="shortener-grid" id="shortenersGrid"></div>
+      </div>
+
+      <!-- Manual Fallback Tunnel / Proxy Control -->
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🌐 Manual Fallback Tunnel / Proxy URL (Optional)</h3>
+          <span class="pill" id="proxyBadge">checking…</span>
+        </div>
+        <div class="row">
+          <input type="text" id="proxyInput" placeholder="http://user:pass@xxxx.run.pinggy-free.link:port  (empty = use connected device pool above)" style="flex:1;min-width:260px" spellcheck="false">
+          <button id="saveProxyBtn">Save Manual Tunnel</button>
+          <button class="ghost" id="testProxyBtn">Test Exit IP</button>
+          <button class="danger" id="clearProxyBtn">Clear Manual</button>
+        </div>
+        <div id="ipLine" style="font-size:13px;color:var(--mute);margin-top:10px"></div>
+      </div>
+
+      <!-- Direct Admin Bypass Tester -->
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">⚡ Admin Bypass Tester</h3>
+          <label class="chk"><input type="checkbox" id="forceBypass"> Force fresh solve (ignore cache)</label>
+        </div>
+        <textarea id="testUrls" placeholder="Paste one or more shortlinks (one per line) to test bypassing…" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button id="runBypassBtn">🚀 Bypass Link(s)</button>
+          <span style="font-size:12.5px;color:var(--mute)">Live browser preview is disabled for performance &amp; security. Step logs stream below.</span>
+        </div>
+        <div id="jobsBox"></div>
+      </div>
+    </section>
+
+    <!-- ================= TAB AI: AUTONOMOUS AI ENGINEER & CODE SYNC ================= -->
+    <section class="tab-pane" id="tabAI">
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Instant Auto-Healer</div>
+          <div class="stat-val" id="aiStatHeal" style="font-size:20px;color:#4ade80">ENABLED</div>
+          <div class="stat-sub">Auto-triggers on any bypass error</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Idle-Time Patrol</div>
+          <div class="stat-val" id="aiStatPatrol" style="font-size:20px;color:#38bdf8">ACTIVE</div>
+          <div class="stat-sub" id="aiStatPatrolSub">Runs every 20 mins</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">AI Fixes Verified</div>
+          <div class="stat-val" id="aiStatFixes">0</div>
+          <div class="stat-sub">Live multi-test verified</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Boot Anti-Rollback</div>
+          <div class="stat-val" id="aiStatVault" style="font-size:20px;color:#a78bfa">PROTECTED</div>
+          <div class="stat-sub" id="aiStatVaultSub">MongoDB code_files active</div>
+        </div>
+      </div>
+
+      <!-- Interactive Agentic AI Console -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">🧠 Autonomous Self-Healing AI Engineer (&ldquo;Brother AI&rdquo;)</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              Reads all system &amp; error logs, probes shorteners live, discovers origin IPs via DNS/SPF, thinks through root causes, writes code/rule fixes, runs <b>live multi-link bypass checks</b>, and only deploys &amp; syncs to MongoDB + GitHub when all tests pass!
+            </div>
+          </div>
+          <div class="row">
+            <span class="pill ok" id="aiRunStatusPill">Ready · Idle</span>
+            <button class="ok-btn sm" id="aiScanErrorsBtn">🔍 Scan &amp; Fix All Error Logs</button>
+            <button class="ghost sm" id="aiForceSyncBtn">☁️ Sync Code to MongoDB &amp; GitHub</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label>Target Shortener Link or Domain to Research / Fix (Optional)</label>
+            <input type="text" id="aiTargetUrlInput" placeholder="https://get2short.com/Pg6a or https://vplink.in/...">
+          </div>
+          <div class="field">
+            <label>Task / Engineering Prompt for AI Engineer</label>
+            <input type="text" id="aiPromptInput" placeholder="Diagnose why this shortener failed, discover origin IP or new domain/timer rules, fix it, verify live, and push to MongoDB & GitHub.">
+          </div>
+        </div>
+        <div class="row">
+          <button id="aiLaunchBtn">🚀 Launch AI Engineer (Research → Fix → Live Test → Push)</button>
+          <button class="ghost" id="aiRefreshStateBtn">🔄 Refresh AI Console</button>
+        </div>
+
+        <!-- Live Thinking, Tool Calls & Verification Console -->
+        <div class="ai-console">
+          <div class="ai-console-h">
+            <div class="row">
+              <span style="font-weight:700;font-size:13.5px;color:#e2e8f0">⚡ Live Reasoning, Tool Execution &amp; Multi-Test Verification Stream</span>
+            </div>
+            <span class="mono" style="font-size:12px;color:var(--mute)" id="aiRunMetaLabel">No active run</span>
+          </div>
+          <div class="ai-stream" id="aiLiveStreamBox">
+            <div style="color:var(--mute);text-align:center;padding:24px">
+              AI Engineer is standing by and monitoring all bypass logs in real time. Launch a diagnostic run above or click <b>🤖 Fix with AI</b> on any error log!
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Autonomous Patrol, LLM & GitHub Sync Configuration -->
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">⚙️ Autonomous Self-Healing, Patrol &amp; GitHub Auto-Push Settings</h3>
+        </div>
+        <div class="row" style="margin-bottom:14px;gap:22px">
+          <label class="chk"><input type="checkbox" id="aiAutoHealChk" checked> 🧠 <b>Instant Auto-Heal on Error</b> (automatically launch AI Engineer whenever a bypass fails)</label>
+          <label class="chk"><input type="checkbox" id="aiPatrolChk" checked> 🛡 <b>Background Idle-Time Patrol</b> (periodically scan logs, check shortener domain changes &amp; verify health)</label>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Background Patrol Interval (Minutes)</label>
+            <input type="number" id="aiPatrolIntervalInput" placeholder="20" min="5">
+          </div>
+          <div class="field">
+            <label>AI Reasoning Provider (<code>auto</code> = Built-in Free Deep Reasoning + API Key if set)</label>
+            <input type="text" id="aiProviderInput" placeholder="auto">
+          </div>
+          <div class="field">
+            <label>Custom OpenAI / OpenRouter / DeepSeek / Anthropic Compatible Base URL (Optional)</label>
+            <input type="text" id="aiBaseUrlInput" placeholder="https://api.openai.com/v1 (leave empty for built-in cloud reasoning)">
+          </div>
+          <div class="field">
+            <label>AI Model Name (Optional)</label>
+            <input type="text" id="aiModelInput" placeholder="openai (or deepseek-reasoner / gpt-4o / claude-3-7-sonnet)">
+          </div>
+          <div class="field">
+            <label>Custom AI API Key (Optional — works out-of-the-box without key)</label>
+            <input type="password" id="aiApiKeyInput" placeholder="sk-... (optional)">
+          </div>
+          <div class="field">
+            <label>GitHub Repository (<code>owner/repo</code>) for Permanent Code Push</label>
+            <input type="text" id="githubRepoInput" placeholder="Urvashi212144/gss-free">
+          </div>
+          <div class="field">
+            <label>GitHub Branch</label>
+            <input type="text" id="githubBranchInput" placeholder="main">
+          </div>
+          <div class="field">
+            <label>GitHub Personal Access Token (<code>ghp_...</code> — optional, pushes AI fixes to GitHub)</label>
+            <input type="password" id="githubTokenInput" placeholder="ghp_...">
+          </div>
+        </div>
+        <button id="saveAiSettingsBtn">💾 Save AI Engineer &amp; GitHub Sync Settings</button>
+      </div>
+
+      <!-- Boot Anti-Rollback Code Vault & Revisions -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">🛡 MongoDB Anti-Rollback Code Vault &amp; AI Revision History</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              Every AI code change and rule update is stored in MongoDB (<code>code_files</code> &amp; <code>code_revisions</code>). When your VPS or Railway container restarts, <b>on_startup</b> automatically hydrates the latest verified code from MongoDB BEFORE starting the engine — preventing older GitHub/Docker code from overwriting AI fixes!
+            </div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <h4 style="margin:0 0 10px;font-size:13.5px;color:var(--mute)">📦 Protected Codebase Files (Live SHA-256 &amp; MongoDB Sync)</h4>
+            <div class="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>File Path</th>
+                    <th>SHA-256</th>
+                    <th>Rev</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="aiCodeFilesBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h4 style="margin:0 0 10px;font-size:13.5px;color:var(--mute)">🕓 Recent AI Code Revisions (1-Click Rollback)</h4>
+            <div class="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Revision</th>
+                    <th>File &amp; Reason</th>
+                    <th>GitHub</th>
+                    <th style="text-align:right">Rollback</th>
+                  </tr>
+                </thead>
+                <tbody id="aiRevisionsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 2: CLOUD CACHE CRUD ================= -->
+    <section class="tab-pane" id="tabCache">
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">➕ Add / Edit Cached Link (Instant MongoDB Sync)</h3>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Original Shortlink URL</label>
+            <input type="text" id="cacheSrcInput" placeholder="https://lksfy.com/jYJn8qdKYQ">
+          </div>
+          <div class="field">
+            <label>Bypassed Destination URL</label>
+            <input type="text" id="cacheDestInput" placeholder="https://telegram.me/...">
+          </div>
+        </div>
+        <div class="row">
+          <button id="saveCacheItemBtn">💾 Save / Update Cache Entry</button>
+          <button class="ghost" id="resetCacheFormBtn">Clear Form</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🗄 Cached Links Database</h3>
+          <div class="row">
+            <input type="text" id="cacheSearchInput" placeholder="Search shortlink or destination…" style="width:240px">
+            <button class="ghost sm" id="refreshCacheBtn">🔄 Refresh</button>
+            <button class="danger sm" id="clearAllCacheBtn">🗑 Clear All Cache</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Shortlink (Source)</th>
+                <th>Bypassed Destination</th>
+                <th>Hits / Time</th>
+                <th>Updated</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="cacheTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 3: BOT & FORCE-SUB ================= -->
+    <section class="tab-pane" id="tabBot">
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🤖 Telegram Bot Credentials &amp; Owner Access</h3>
+          <span class="pill" id="botConnPill">checking…</span>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Telegram Bot Token (@BotFather)</label>
+            <input type="text" id="botTokenInput" placeholder="1234567890:AAH...">
+          </div>
+          <div class="field">
+            <label>Owner Telegram User ID (receives tunnel &amp; error alerts)</label>
+            <input type="number" id="ownerIdInput" placeholder="e.g. 6123456789">
+          </div>
+          <div class="field">
+            <label>Telegram API ID (my.telegram.org)</label>
+            <input type="number" id="apiIdInput" placeholder="e.g. 12345678">
+          </div>
+          <div class="field">
+            <label>Telegram API Hash (my.telegram.org)</label>
+            <input type="text" id="apiHashInput" placeholder="e.g. a1b2c3d4e5f6...">
+          </div>
+          <div class="field">
+            <label>Additional Admin User IDs (comma-separated)</label>
+            <input type="text" id="adminIdsInput" placeholder="6123456789, 7123456789">
+          </div>
+          <div class="field">
+            <label>Brand Name</label>
+            <input type="text" id="brandNameInput" placeholder="TheDrunkBots">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>/start Welcome Photo URL</label>
+            <input type="text" id="startPhotoInput" placeholder="https://i.ibb.co/1Nx1jMn/IMG-20261005-021725.png">
+          </div>
+          <div class="field">
+            <label>Updates Channel Link / @Username</label>
+            <input type="text" id="updatesChanInput" placeholder="https://t.me/TheDrunkBots">
+          </div>
+        </div>
+        <div class="field">
+          <label>/start Welcome Caption Template (HTML allowed; placeholders: <code>{first_name}</code>, <code>{brand}</code>)</label>
+          <textarea id="welcomeMsgInput" style="min-height:110px"></textarea>
+        </div>
+        <div class="row" style="margin-bottom:14px">
+          <label class="chk"><input type="checkbox" id="maintModeChk"> 🛠 Maintenance Mode (pause non-admin users)</label>
+          <label class="chk"><input type="checkbox" id="protectContentChk"> 🔒 Protect Bot Messages (disable forwarding)</label>
+        </div>
+        <button id="saveBotSettingsBtn">💾 Save &amp; Sync Bot Configuration</button>
+      </div>
+
+      <!-- Force-Subscribe Channels Manager -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">📢 Force-Subscribe Channels (Auto Permanent Invite Link Generator)</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              When you add a channel, the bot automatically generates a permanent non-expiring invite link via Telegram API so users never get an expired or inactive link!
+            </div>
+          </div>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="fsubEnabledChk"> Enable Force-Subscribe</label>
+            <button class="ok-btn sm" id="refreshFsubInvitesBtn">🔄 Auto-Generate Fresh Invite Links</button>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Channel @Username or Chat ID (-100…)</label>
+            <input type="text" id="fsubChatIdInput" placeholder="-1003768452343 or @TheDrunkBots">
+          </div>
+          <div class="field">
+            <label>Button Title (optional — auto-fetched if blank)</label>
+            <input type="text" id="fsubTitleInput" placeholder="TheDrunkBots Official">
+          </div>
+        </div>
+        <div class="field">
+          <label>Invite Link (optional — leave blank to auto-generate a permanent non-expiring link!)</label>
+          <input type="text" id="fsubInviteInput" placeholder="Leave blank for automatic permanent invite link generation…">
+        </div>
+        <button id="addFsubBtn">➕ Add / Update Force-Sub Channel (Auto-Generate Invite Link)</button>
+
+        <div class="tbl-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>Channel ID / @Username</th>
+                <th>Title</th>
+                <th>Permanent Invite Link</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="fsubTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB PROTECTED: PROTECTED BOTS & LINKS SHIELD ================= -->
+    <section class="tab-pane" id="tabProtected">
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Security Shield</div>
+          <div class="stat-val" id="protStatEnabled" style="font-size:20px;color:#4ade80">ENABLED</div>
+          <div class="stat-sub">Blocks bypassing own bots</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Protected Bots</div>
+          <div class="stat-val" id="protStatBots">11</div>
+          <div class="stat-sub">Official partner bots</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Synced Masked Links</div>
+          <div class="stat-val" id="protStatSynced">0</div>
+          <div class="stat-sub">Live from MongoDB clusters</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">MongoDB Clusters</div>
+          <div class="stat-val" id="protStatClusters">4</div>
+          <div class="stat-sub">Auto-synced every 3m</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">🛡 Protected Official Bots &amp; Repositories</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              Shortlinks generated by any of your protected bots below are blocked from being bypassed (both pre-bypass via alias/masked_links and post-bypass via bot username &amp; token verification).
+            </div>
+          </div>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="protEnabledChk" checked> 🛡 Enable Protected Links Shield</label>
+            <button class="ok-btn sm" id="protSyncNowBtn">🔄 Sync Masked Links Now</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label>Bot @Username, t.me Link, or GitHub Repo URL</label>
+            <input type="text" id="protBotUsernameInput" placeholder="@MyNewBot or https://github.com/amazedreamer/MY-NEW-BOT">
+          </div>
+          <div class="field">
+            <label>Bot / Project Display Name (optional)</label>
+            <input type="text" id="protBotNameInput" placeholder="e.g. MY-NEW-BOT">
+          </div>
+          <div class="field">
+            <label>GitHub Repository URL (optional)</label>
+            <input type="text" id="protBotRepoInput" placeholder="https://github.com/amazedreamer/...">
+          </div>
+          <div class="field">
+            <label>MongoDB Database Name (optional)</label>
+            <input type="text" id="protBotDbInput" placeholder="e.g. CUTEHEAVEN">
+          </div>
+        </div>
+        <button id="addProtBotBtn">➕ Add Protected Bot</button>
+
+        <div class="tbl-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>Bot / Repo Name</th>
+                <th>Telegram @Username</th>
+                <th>Database / Source</th>
+                <th>Protected</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="protBotsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🔒 Detection Signatures, MongoDB Clusters &amp; User Response Message</h3>
+        </div>
+        <div class="row" style="margin-bottom:14px;gap:22px">
+          <label class="chk"><input type="checkbox" id="protRuleAliasChk" checked> Block <code>__alias__</code> signature (<code>_generate_alias(8)</code> in db_Verify.py)</label>
+          <label class="chk"><input type="checkbox" id="protRulePayloadChk" checked> Block <code>?start=yu3elk...7</code> verification payload signature</label>
+          <label class="chk"><input type="checkbox" id="protRuleMaskedChk" checked> Block <code>/r/&lt;hash&gt;</code> masked redirect links</label>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Custom Protected Domains / URL Patterns (comma-separated)</label>
+            <input type="text" id="protCustomPatternsInput" placeholder="e.g. myredirectdomain.com, ?start=customprefix">
+          </div>
+          <div class="field">
+            <label>Add Protected Bot MongoDB URI (auto-syncs <code>masked_links</code>)</label>
+            <div class="row">
+              <input type="text" id="protClusterUriInput" placeholder="mongodb+srv://..." style="flex:1">
+              <input type="text" id="protClusterNameInput" placeholder="Cluster Name" style="max-width:160px">
+              <button class="ghost sm" id="addProtClusterBtn">➕ Add Cluster</button>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Message Sent to Users Trying to Bypass Protected Links (HTML supported)</label>
+          <textarea id="protMessageInput" style="min-height:115px"></textarea>
+        </div>
+        <button id="saveProtRulesBtn">💾 Save Protected Shield Rules &amp; Response Message</button>
+      </div>
+    </section>
+
+    <!-- ================= TAB PREMIUM: PREMIUM PLANS & PAYTM AUTO-PAYMENT ================= -->
+    <section class="tab-pane" id="tabPremium">
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Premium-Only Gate</div>
+          <div class="stat-val" id="premStatEnabled" style="font-size:20px;color:#4ade80">ENABLED</div>
+          <div class="stat-sub" id="premStatTrialSub">3 lifetime free uses / user</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Active Premium Users</div>
+          <div class="stat-val" id="premStatActiveUsers">0</div>
+          <div class="stat-sub">Unlimited bypass access</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Paytm Merchant MID</div>
+          <div class="stat-val mono" id="premStatMid" style="font-size:15px;color:#38bdf8">PKNtOC25387320837859</div>
+          <div class="stat-sub" id="premStatUpi">paytmqr6mexnc@ptys</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Payment Logs Channel</div>
+          <div class="stat-val mono" id="premStatLogChan" style="font-size:16px">-1003270558605</div>
+          <div class="stat-sub">Auto-verified receipts</div>
+        </div>
+      </div>
+
+      <!-- Editable Premium Plans Card -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">📦 Editable Premium Plans (1 Month / 3 Months / 6 Months &amp; Custom)</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              Edit plan prices, durations, names, or add new plans anytime — changes sync live to the Telegram Bot's <b>💎 Buy Premium</b> menu!
+            </div>
+          </div>
+          <button class="ghost sm" id="refreshPremiumBtn">🔄 Refresh</button>
+        </div>
+
+        <div class="grid-3">
+          <div class="field">
+            <label>Plan Key (e.g. <code>plan_1m</code>, <code>plan_3m</code>, <code>plan_6m</code>)</label>
+            <input type="text" id="planKeyInput" placeholder="plan_1m">
+          </div>
+          <div class="field">
+            <label>Plan Type Slug (for <code>/addpremium</code>)</label>
+            <input type="text" id="planTypeInput" placeholder="1_month">
+          </div>
+          <div class="field">
+            <label>Display Name</label>
+            <input type="text" id="planNameInput" placeholder="1 Month">
+          </div>
+          <div class="field">
+            <label>Duration (Days)</label>
+            <input type="number" id="planDaysInput" placeholder="30">
+          </div>
+          <div class="field">
+            <label>Price (₹ INR)</label>
+            <input type="number" step="1" id="planAmountInput" placeholder="100">
+          </div>
+          <div class="field">
+            <label>Badge (optional)</label>
+            <input type="text" id="planBadgeInput" placeholder="Popular / Best Value">
+          </div>
+        </div>
+        <div class="row">
+          <button id="savePlanBtn">💾 Add / Update Premium Plan</button>
+          <button class="ghost" id="clearPlanFormBtn">Clear Form</button>
+        </div>
+
+        <div class="tbl-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>Plan Key &amp; Type</th>
+                <th>Display Name</th>
+                <th>Duration</th>
+                <th>Price (₹)</th>
+                <th>Enabled</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="premPlansTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Manual User Premium Activation & Active Premium Users -->
+      <div class="card">
+        <div class="card-h">
+          <div>
+            <h3 class="card-title">👑 Manual Premium Activation (<code>/addpremium &lt;user_id&gt; &lt;plan_type&gt; &lt;days&gt;</code>)</h3>
+            <div style="font-size:12.5px;color:var(--mute);margin-top:3px">
+              Manually grant or extend Premium access for any Telegram User ID, or reset a user's 3 lifetime free uses.
+            </div>
+          </div>
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Telegram User ID</label>
+            <input type="number" id="premUserIdInput" placeholder="e.g. 8584220782">
+          </div>
+          <div class="field">
+            <label>Plan Type</label>
+            <select id="premUserPlanTypeInput">
+              <option value="1_month">1_month (1 Month — 30 Days)</option>
+              <option value="3_months">3_months (3 Months — 90 Days)</option>
+              <option value="6_months">6_months (6 Months — 180 Days)</option>
+              <option value="custom">Custom Duration</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Duration (Days)</label>
+            <input type="number" id="premUserDaysInput" value="30" placeholder="30">
+          </div>
+        </div>
+        <div class="row">
+          <button class="ok-btn" id="grantPremUserBtn">💎 Activate / Extend Premium User</button>
+          <button class="ghost" id="resetFreeTrialUserBtn">🎁 Reset User's 3 Free Uses to 0</button>
+        </div>
+
+        <div class="tbl-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>User ID</th>
+                <th>Name / @Username</th>
+                <th>Plan Type</th>
+                <th>Source</th>
+                <th>Remaining</th>
+                <th>Expires On (IST)</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="premUsersTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Paytm Auto-Payment & Free Trial Settings -->
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🏦 Paytm Dynamic QR &amp; Auto-Verification Gateway Settings</h3>
+        </div>
+        <div class="row" style="margin-bottom:14px;gap:20px">
+          <label class="chk"><input type="checkbox" id="premOnlyEnabledChk" checked> 💎 Enforce Premium-Only Gate after Free Trial</label>
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Lifetime Free Link Uses per User</label>
+            <input type="number" id="freeTrialLimitInput" value="3" placeholder="3">
+          </div>
+          <div class="field">
+            <label>Paytm Merchant ID (MID)</label>
+            <input type="text" id="paytmMidInput" placeholder="PKNtOC25387320837859">
+          </div>
+          <div class="field">
+            <label>UPI ID (for Dynamic QR)</label>
+            <input type="text" id="upiIdInput" placeholder="paytmqr6mexnc@ptys">
+          </div>
+          <div class="field">
+            <label>UPI Payee Name</label>
+            <input type="text" id="upiPayeeNameInput" placeholder="APPLE GIFT GALLERY">
+          </div>
+          <div class="field">
+            <label>Paytm Verification API URL</label>
+            <input type="text" id="paymentApiUrlInput" placeholder="https://thedrunkbots-pay-check-api.onrender.com/">
+          </div>
+          <div class="field">
+            <label>Payment Logs Channel ID</label>
+            <input type="text" id="paymentLogChanInput" placeholder="-1003270558605">
+          </div>
+          <div class="field">
+            <label>Contact Admin URL / @Username</label>
+            <input type="text" id="ownerContactUrlInput" placeholder="https://t.me/ToxicXAdminRoBot">
+          </div>
+          <div class="field">
+            <label>QR Session Timeout (Minutes)</label>
+            <input type="number" id="paymentMaxMinInput" value="15" placeholder="15">
+          </div>
+          <div class="field">
+            <label>Auto-Poll Interval (Seconds)</label>
+            <input type="number" id="paymentVerifyIntInput" value="12" placeholder="12">
+          </div>
+        </div>
+        <button id="savePaymentSettingsBtn">💾 Save Paytm &amp; Free Trial Configuration</button>
+      </div>
+
+      <!-- Recent Paytm Orders Log -->
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🧾 Recent Paytm QR Orders &amp; Auto-Verified Transactions</h3>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>User ID</th>
+                <th>Plan</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>TXN ID / Bank UTR</th>
+                <th>Created At</th>
+              </tr>
+            </thead>
+            <tbody id="premOrdersTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 4: ERROR LOGS ================= -->
+    <section class="tab-pane" id="tabLogs">
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">🚨 Complete Bypass Error Logs</h3>
+          <div class="row">
+            <button class="ghost sm" id="refreshLogsBtn">🔄 Refresh</button>
+            <button class="danger sm" id="clearAllLogsBtn">🗑 Clear All Logs</button>
+          </div>
+        </div>
+        <div id="logsContainer"></div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 5: USERS & BROADCAST ================= -->
+    <section class="tab-pane" id="tabUsers">
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">📢 Broadcast Message to All Telegram Users</h3>
+        </div>
+        <div class="field">
+          <label>Announcement Text (Telegram HTML formatting supported)</label>
+          <textarea id="broadcastTextInput" placeholder="<b>🚀 New Update!</b> All links are now bypassing even faster!"></textarea>
+        </div>
+        <div class="row">
+          <button id="sendBroadcastBtn">📢 Send Broadcast Now</button>
+          <span id="broadcastResult" style="font-size:13px;color:var(--mute)"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">👥 Registered Bot Users</h3>
+          <div class="row">
+            <input type="text" id="userSearchInput" placeholder="Search ID, name or @username…" style="width:240px">
+            <button class="ghost sm" id="refreshUsersBtn">🔄 Refresh</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>User ID</th>
+                <th>Name / Username</th>
+                <th>Bypassed</th>
+                <th>Last Active</th>
+                <th>Status</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 6: ENGINE & SECURITY SETTINGS ================= -->
+    <section class="tab-pane" id="tabSettings">
+      <div class="card">
+        <div class="card-h">
+          <h3 class="card-title">⚙️ Engine, Cache &amp; Security Configuration</h3>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Web Admin Panel Password</label>
+            <input type="text" id="adminPassInput" placeholder="admin123">
+          </div>
+          <div class="field">
+            <label>MongoDB Atlas Connection URI</label>
+            <input type="text" id="mongoUriInput" placeholder="mongodb+srv://...">
+          </div>
+          <div class="field">
+            <label>Turnstile Solver URL</label>
+            <input type="text" id="solverUrlInput" placeholder="https://cf.vltcx.eu.cc">
+          </div>
+          <div class="field">
+            <label>Cache TTL (Hours)</label>
+            <input type="number" step="0.5" id="cacheHoursInput" placeholder="24">
+          </div>
+          <div class="field">
+            <label>Timer Acceleration Factor (0.1 = 10x faster)</label>
+            <input type="number" step="0.05" id="accelInput" placeholder="0.1">
+          </div>
+          <div class="field">
+            <label>Max Bypass Timeout (Seconds)</label>
+            <input type="number" id="timeoutInput" placeholder="300">
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:14px">
+          <label class="chk"><input type="checkbox" id="cacheEnabledChk"> 🚀 Enable Cloud Link Caching</label>
+        </div>
+        <button id="saveEngineSettingsBtn">💾 Save Engine &amp; Security Settings</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function showToast(msg, isErr = false) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.style.borderColor = isErr ? 'var(--err)' : 'var(--acc)';
+  t.style.display = 'block';
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(() => { t.style.display = 'none'; }, 3200);
+}
+
+async function api(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (opts.body && typeof opts.body === 'object') {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  const tok = localStorage.getItem('g2s_admin_token');
+  if (tok) headers['Authorization'] = 'Bearer ' + tok;
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401 && !url.includes('/api/auth/')) {
+    showLogin();
+    throw new Error('Unauthorized');
+  }
+  return r.json();
+}
+
+function showLogin() {
+  $('#appView').style.display = 'none';
+  $('#loginView').style.display = 'flex';
+}
+
+function showApp() {
+  $('#loginView').style.display = 'none';
+  $('#appView').style.display = 'block';
+  refreshAll();
+}
+
+// Tabs switching
+$$('.tab-btn').forEach(btn => {
+  btn.onclick = () => {
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    $$('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $('#' + btn.dataset.tab).classList.add('active');
+    const t = btn.dataset.tab;
+    if (t === 'tabPremium') loadPremium();
+    if (t === 'tabAI') loadAiState();
+    if (t === 'tabProtected') loadProtected();
+    if (t === 'tabCache') loadCache();
+    if (t === 'tabLogs') loadLogs();
+    if (t === 'tabUsers') loadUsers();
+    if (t === 'tabBot' || t === 'tabSettings') loadSettings();
+  };
+});
+
+// Login / Logout
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault();
+  $('#loginErr').style.display = 'none';
+  try {
+    const r = await api('/api/auth/login', { method: 'POST', body: { password: $('#loginPass').value } });
+    if (!r.ok) {
+      $('#loginErr').textContent = r.error || 'Invalid password';
+      $('#loginErr').style.display = 'block';
+      return;
+    }
+    localStorage.setItem('g2s_admin_token', r.token);
+    $('#loginPass').value = '';
+    showApp();
+  } catch (err) {
+    $('#loginErr').textContent = 'Login failed';
+    $('#loginErr').style.display = 'block';
+  }
+};
+
+$('#logoutBtn').onclick = async () => {
+  localStorage.removeItem('g2s_admin_token');
+  await fetch('/api/auth/logout', { method: 'POST' });
+  showLogin();
+};
+
+// Dashboard & Health
+async function loadDashboard() {
+  const [d, h] = await Promise.all([api('/api/dashboard'), api('/api/health')]);
+  $('#topBrand').textContent = d.brand || 'TheDrunkBots';
+  $('#loginBrand').textContent = d.brand || 'TheDrunkBots';
+
+  $('#stBypassed').textContent = d.stats.total_bypasses;
+  $('#stCacheHits').textContent = d.stats.cache_hits;
+  $('#stCacheCount').textContent = d.cache_count;
+  $('#stUsers').textContent = d.users_count;
+  $('#stErrors').textContent = d.logs_count;
+  if ($('#stTunnelDevs')) {
+    $('#stTunnelDevs').textContent = `${d.tunnel_devices_online || 0} / ${d.tunnel_devices_total || 0}`;
+    $('#stTunnelSub').textContent = d.active_tunnel_device
+      ? `Active: ${d.active_tunnel_device.device_name}`
+      : 'Online / Registered';
+  }
+  if ($('#stShortenersOn')) {
+    $('#stShortenersOn').textContent = `${d.shorteners_tunnel_enabled || 0} / ${d.shorteners_total || 20}`;
+  }
+
+  $('#cntCache').textContent = d.cache_count;
+  $('#cntFsub').textContent = d.fsub_count;
+  $('#cntLogs').textContent = d.logs_count;
+  $('#cntUsers').textContent = d.users_count;
+  if ($('#cntProtected')) $('#cntProtected').textContent = d.protected_bots_count ?? 11;
+  if ($('#cntPremium')) $('#cntPremium').textContent = d.premium_users_count ?? 0;
+
+  const pm = $('#pillMongo');
+  pm.textContent = d.mongo_connected ? 'MongoDB: Connected' : 'MongoDB: Local Fallback';
+  pm.className = 'pill ' + (d.mongo_connected ? 'ok' : 'warn');
+
+  const pb = $('#pillBot');
+  if (d.bot_running && d.bot_info) {
+    pb.textContent = 'Bot: @' + d.bot_info.username;
+    pb.className = 'pill ok';
+    $('#stBotName').textContent = '@' + d.bot_info.username + ' (Online)';
+  } else {
+    pb.textContent = 'Bot: Offline';
+    pb.className = 'pill warn';
+    $('#stBotName').textContent = 'Set token in Bot tab';
+  }
+
+  const pp = $('#pillProxy');
+  const pBadge = $('#proxyBadge');
+  if (d.has_proxy && !d.proxy_expired) {
+    pp.textContent = 'Tunnel: Active';
+    pp.className = 'pill ok';
+    pBadge.textContent = 'Active: ' + (d.proxy_masked || '');
+    pBadge.className = 'pill ok';
+  } else if (d.proxy_expired) {
+    pp.textContent = 'Tunnel: EXPIRED';
+    pp.className = 'pill err';
+    pBadge.textContent = 'Tunnel Expired — Please Renew!';
+    pBadge.className = 'pill err';
+  } else {
+    pp.textContent = 'Tunnel: Direct';
+    pp.className = 'pill warn';
+    pBadge.textContent = 'Direct Connection (No Proxy)';
+    pBadge.className = 'pill warn';
+  }
+
+  const ps = $('#pillSolver');
+  ps.textContent = 'Solver: ' + h.solver;
+  ps.className = 'pill ' + (h.solver === 'ok' ? 'ok' : 'err');
+
+  const pai = $('#pillAI');
+  if (pai) {
+    if (d.ai_busy) {
+      pai.textContent = '🧠 AI Healer: Working…';
+      pai.className = 'pill warn';
+    } else if (d.ai_auto_heal || d.ai_patrol_enabled) {
+      pai.textContent = `🧠 AI Healer: Active (${d.stats.ai_fixes || 0} fixes)`;
+      pai.className = 'pill ok';
+    } else {
+      pai.textContent = '🧠 AI Healer: Paused';
+      pai.className = 'pill warn';
+    }
+  }
+}
+
+// Tunnel / Proxy Controls
+async function testExitIp() {
+  $('#ipLine').textContent = 'Testing exit IP…';
+  const r = await api('/api/proxy-test');
+  if (!r.ok) {
+    $('#ipLine').innerHTML = `<b style="color:var(--err)">Tunnel Error:</b> ${esc(r.error)}`;
+    return;
+  }
+  const color = r.datacenter ? 'var(--err)' : 'var(--ok)';
+  const label = r.datacenter ? '⚠️ Datacenter IP (may be blocked by Cloudflare)' : '✅ Residential / Home IP Verified';
+  $('#ipLine').innerHTML = `Exit IP: <b style="color:${color}">${esc(r.ip)}</b> · ${esc([r.city, r.region, r.country].filter(Boolean).join(', '))} · ${esc(r.org || '')} — <b style="color:${color}">${label}</b>`;
+  loadDashboard();
+}
+
+$('#saveProxyBtn').onclick = async () => {
+  const px = $('#proxyInput').value.trim();
+  $('#saveProxyBtn').disabled = true;
+  $('#ipLine').textContent = 'Applying tunnel proxy & restarting browser…';
+  try {
+    const r = await api('/api/settings', { method: 'POST', body: { proxy: px } });
+    if (r.error) { showToast(r.error, true); return; }
+    showToast('Tunnel proxy updated & synced!');
+    await testExitIp();
+  } finally {
+    $('#saveProxyBtn').disabled = false;
+  }
+};
+
+$('#clearProxyBtn').onclick = async () => {
+  $('#proxyInput').value = '';
+  $('#clearProxyBtn').disabled = true;
+  try {
+    await api('/api/settings', { method: 'POST', body: { proxy: '' } });
+    showToast('Switched to direct connection');
+    await testExitIp();
+  } finally {
+    $('#clearProxyBtn').disabled = false;
+  }
+};
+
+$('#testProxyBtn').onclick = testExitIp;
+
+// Admin Bypass Tester
+function createJobCard(id, src) {
+  const d = document.createElement('div');
+  d.className = 'job';
+  d.innerHTML = `<div class="job-h"><span class="st running"><span class="spin"></span> Bypassing…</span>
+    <span class="src mono">${esc(src)}</span></div><pre class="log"></pre>`;
+  $('#jobsBox').prepend(d);
+  return d;
+}
+
+$('#runBypassBtn').onclick = async () => {
+  const url = $('#testUrls').value.trim();
+  if (!url) return;
+  $('#runBypassBtn').disabled = true;
+  try {
+    const res = await api('/api/jobs', { method: 'POST', body: { url, force: $('#forceBypass').checked } });
+    const lines = url.split(/\n/).map(s => s.trim()).filter(Boolean);
+    (res.jobs || []).forEach((id, i) => {
+      const box = createJobCard(id, lines[i]);
+      const log = box.querySelector('.log');
+      const es = new EventSource(`/api/jobs/${id}/events`);
+      es.onmessage = ev => {
+        const m = JSON.parse(ev.data);
+        if (m.log) { log.textContent += m.log + '\n'; log.scrollTop = log.scrollHeight; }
+        if (m.done) {
+          es.close();
+          const st = box.querySelector('.st');
+          const r = document.createElement('div');
+          if (m.done.result) {
+            const out = m.done.result;
+            st.className = 'st ok';
+            st.textContent = out.cached ? '✔ CACHED (0.01s)' : `✔ ${out.elapsed}s`;
+            r.className = 'res';
+            r.innerHTML = `<div class="mono brk" style="font-size:14px;margin-bottom:8px"><a href="${esc(out.url)}" target="_blank" rel="noreferrer">${esc(out.url)}</a></div>
+              <div class="row"><button class="sm cp">Copy Link 📋</button><button class="ghost sm op">Open Link ↗️</button></div>`;
+            r.querySelector('.cp').onclick = e => { navigator.clipboard.writeText(out.url); e.target.textContent = 'Copied ✓'; };
+            r.querySelector('.op').onclick = () => window.open(out.url, '_blank', 'noreferrer');
+          } else {
+            st.className = 'st err';
+            st.textContent = '✖ Failed';
+            r.className = 'res err';
+            r.textContent = m.done.error || 'Failed';
+          }
+          box.appendChild(r);
+          loadDashboard();
+        }
+      };
+    });
+    $('#testUrls').value = '';
+  } finally {
+    $('#runBypassBtn').disabled = false;
+  }
+};
+
+// Cloud Cache CRUD
+async function loadCache() {
+  const q = $('#cacheSearchInput').value.trim();
+  const items = await api('/api/cache?q=' + encodeURIComponent(q));
+  $('#cntCache').textContent = items.length;
+  const tb = $('#cacheTableBody');
+  if (!items.length) {
+    tb.innerHTML = `<tr><td colspan="5" style="color:var(--mute);text-align:center;padding:24px">No cached links found.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = items.map(item => `
+    <tr>
+      <td class="mono brk" style="max-width:260px">${esc(item.source)}</td>
+      <td class="mono brk" style="max-width:340px"><a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a></td>
+      <td class="mono">${item.hits || 0} hits · ${item.elapsed || 0}s</td>
+      <td style="white-space:nowrap;color:var(--mute)">${new Date((item.at || 0) * 1000).toLocaleString()}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="ghost sm edit-cache" data-src="${esc(item.source)}" data-url="${esc(item.url)}">✏️ Edit</button>
+        <button class="ghost sm copy-cache" data-url="${esc(item.url)}">📋</button>
+        <button class="danger sm del-cache" data-src="${esc(item.source)}">🗑</button>
+      </td>
+    </tr>
+  `).join('');
+
+  tb.querySelectorAll('.edit-cache').forEach(b => {
+    b.onclick = () => {
+      $('#cacheSrcInput').value = b.dataset.src;
+      $('#cacheDestInput').value = b.dataset.url;
+      $('#cacheSrcInput').focus();
+      showToast('Loaded into editor above');
+    };
+  });
+  tb.querySelectorAll('.copy-cache').forEach(b => {
+    b.onclick = () => { navigator.clipboard.writeText(b.dataset.url); showToast('Copied destination URL!'); };
+  });
+  tb.querySelectorAll('.del-cache').forEach(b => {
+    b.onclick = async () => {
+      await api('/api/cache?source=' + encodeURIComponent(b.dataset.src), { method: 'DELETE' });
+      showToast('Deleted cache entry');
+      loadCache();
+      loadDashboard();
+    };
+  });
+}
+
+$('#saveCacheItemBtn').onclick = async () => {
+  const source = $('#cacheSrcInput').value.trim();
+  const url = $('#cacheDestInput').value.trim();
+  if (!source || !url) { showToast('Enter both shortlink and destination URL', true); return; }
+  await api('/api/cache', { method: 'POST', body: { source, url } });
+  showToast('Saved to MongoDB Cloud Cache!');
+  $('#cacheSrcInput').value = '';
+  $('#cacheDestInput').value = '';
+  loadCache();
+  loadDashboard();
+};
+
+$('#resetCacheFormBtn').onclick = () => { $('#cacheSrcInput').value = ''; $('#cacheDestInput').value = ''; };
+$('#refreshCacheBtn').onclick = loadCache;
+$('#cacheSearchInput').oninput = loadCache;
+$('#clearAllCacheBtn').onclick = async () => {
+  if (!confirm('Clear all cached links from MongoDB and memory?')) return;
+  await api('/api/cache?all=1', { method: 'DELETE' });
+  showToast('Cleared all cache');
+  loadCache();
+  loadDashboard();
+};
+
+// Settings & Force-Sub CRUD
+async function loadSettings() {
+  const s = await api('/api/settings');
+  $('#proxyInput').value = s.proxy || '';
+  $('#botTokenInput').value = s.telegram_bot_token || '';
+  $('#ownerIdInput').value = s.owner_id || '';
+  $('#apiIdInput').value = s.telegram_api_id || '';
+  $('#apiHashInput').value = s.telegram_api_hash || '';
+  $('#adminIdsInput').value = (s.admin_ids || []).join(', ');
+  $('#brandNameInput').value = s.brand_name || 'TheDrunkBots';
+  $('#startPhotoInput').value = s.start_photo || '';
+  $('#updatesChanInput').value = s.updates_channel || '';
+  $('#welcomeMsgInput').value = s.welcome_message || '';
+  $('#maintModeChk').checked = !!s.maintenance_mode;
+  $('#protectContentChk').checked = !!s.protect_content;
+  $('#fsubEnabledChk').checked = s.force_sub_enabled !== false;
+
+  $('#adminPassInput').value = s.admin_password || '';
+  $('#mongoUriInput').value = s.mongo_uri || '';
+  $('#solverUrlInput').value = s.solver_url || '';
+  $('#cacheHoursInput').value = s.cache_hours ?? 24;
+  $('#accelInput').value = s.accel_factor ?? 0.1;
+  $('#timeoutInput').value = s.timeout ?? 300;
+  $('#cacheEnabledChk').checked = s.cache_enabled !== false;
+
+  if ($('#aiAutoHealChk')) {
+    $('#aiAutoHealChk').checked = s.ai_auto_heal !== false;
+    $('#aiPatrolChk').checked = s.ai_patrol_enabled !== false;
+    $('#aiPatrolIntervalInput').value = s.ai_patrol_interval_minutes ?? 20;
+    $('#aiProviderInput').value = s.ai_provider || 'auto';
+    $('#aiBaseUrlInput').value = s.ai_base_url || '';
+    $('#aiModelInput').value = s.ai_model || 'openai';
+    $('#aiApiKeyInput').value = s.ai_api_key || '';
+    $('#githubRepoInput').value = s.github_repo || 'Urvashi212144/gss-free';
+    $('#githubBranchInput').value = s.github_branch || 'main';
+    $('#githubTokenInput').value = s.github_token || '';
+  }
+
+  const bp = $('#botConnPill');
+  if (s.bot_running && s.bot_info) {
+    bp.textContent = 'Connected: @' + s.bot_info.username;
+    bp.className = 'pill ok';
+  } else {
+    bp.textContent = 'Bot Not Connected';
+    bp.className = 'pill warn';
+  }
+
+  renderFsubTable(s.force_sub_channels || []);
+}
+
+function renderFsubTable(channels) {
+  $('#cntFsub').textContent = channels.length;
+  const tb = $('#fsubTableBody');
+  if (!channels.length) {
+    tb.innerHTML = `<tr><td colspan="4" style="color:var(--mute);text-align:center;padding:18px">No Force-Subscribe channels added yet.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = channels.map(c => `
+    <tr>
+      <td class="mono">
+        ${esc(c.chat_id)}
+        ${c.api_chat_id && c.api_chat_id !== c.chat_id ? `<div style="font-size:11px;color:var(--ok)">API synced: ${esc(c.api_chat_id)}</div>` : ''}
+      </td>
+      <td><b>${esc(c.title || c.chat_id)}</b></td>
+      <td class="mono brk"><a href="${esc(c.invite_link)}" target="_blank" rel="noreferrer">${esc(c.invite_link)}</a></td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="ghost sm edit-fsub" data-cid="${esc(c.chat_id)}" data-title="${esc(c.title || '')}" data-inv="${esc(c.invite_link || '')}">✏️ Edit</button>
+        <button class="danger sm del-fsub" data-cid="${esc(c.chat_id)}">🗑 Remove</button>
+      </td>
+    </tr>
+  `).join('');
+
+  tb.querySelectorAll('.edit-fsub').forEach(b => {
+    b.onclick = () => {
+      $('#fsubChatIdInput').value = b.dataset.cid;
+      $('#fsubTitleInput').value = b.dataset.title;
+      $('#fsubInviteInput').value = b.dataset.inv;
+    };
+  });
+  tb.querySelectorAll('.del-fsub').forEach(b => {
+    b.onclick = async () => {
+      const r = await api('/api/fsub?chat_id=' + encodeURIComponent(b.dataset.cid), { method: 'DELETE' });
+      renderFsubTable(r.channels || []);
+      showToast('Removed Force-Sub channel');
+      loadDashboard();
+    };
+  });
+}
+
+$('#saveBotSettingsBtn').onclick = async () => {
+  $('#saveBotSettingsBtn').disabled = true;
+  try {
+    await api('/api/settings', {
+      method: 'POST',
+      body: {
+        telegram_bot_token: $('#botTokenInput').value.trim(),
+        owner_id: $('#ownerIdInput').value.trim(),
+        telegram_api_id: $('#apiIdInput').value.trim(),
+        telegram_api_hash: $('#apiHashInput').value.trim(),
+        admin_ids: $('#adminIdsInput').value.trim(),
+        brand_name: $('#brandNameInput').value.trim() || 'TheDrunkBots',
+        start_photo: $('#startPhotoInput').value.trim(),
+        updates_channel: $('#updatesChanInput').value.trim(),
+        welcome_message: $('#welcomeMsgInput').value,
+        maintenance_mode: $('#maintModeChk').checked,
+        protect_content: $('#protectContentChk').checked,
+      }
+    });
+    showToast('Bot configuration saved & synced!');
+    await loadSettings();
+    await loadDashboard();
+  } finally {
+    $('#saveBotSettingsBtn').disabled = false;
+  }
+};
+
+$('#fsubEnabledChk').onchange = async () => {
+  await api('/api/fsub', { method: 'POST', body: { enabled: $('#fsubEnabledChk').checked } });
+  showToast('Force-Subscribe setting updated');
+};
+
+if ($('#refreshFsubInvitesBtn')) {
+  $('#refreshFsubInvitesBtn').onclick = async () => {
+    $('#refreshFsubInvitesBtn').disabled = true;
+    try {
+      const r = await api('/api/fsub', { method: 'POST', body: { refresh_invites: true } });
+      renderFsubTable(r.channels || []);
+      showToast('Fresh permanent invite links generated & synced!');
+      loadDashboard();
+    } finally {
+      $('#refreshFsubInvitesBtn').disabled = false;
+    }
+  };
+}
+
+$('#addFsubBtn').onclick = async () => {
+  const chat_id = $('#fsubChatIdInput').value.trim();
+  const title = $('#fsubTitleInput').value.trim();
+  const invite_link = $('#fsubInviteInput').value.trim();
+  if (!chat_id) { showToast('Enter channel @username or -100 chat ID', true); return; }
+  $('#addFsubBtn').disabled = true;
+  try {
+    const r = await api('/api/fsub', { method: 'POST', body: { chat_id, title, invite_link } });
+    renderFsubTable(r.channels || []);
+    $('#fsubChatIdInput').value = '';
+    $('#fsubTitleInput').value = '';
+    $('#fsubInviteInput').value = '';
+    showToast('Force-Sub channel saved & permanent invite link verified!');
+    loadDashboard();
+  } finally {
+    $('#addFsubBtn').disabled = false;
+  }
+};
+
+// Protected Bots & Links Shield Manager
+function renderProtectedState(raw) {
+  const data = (raw && raw.protected) ? raw.protected : raw;
+  if (!data) return;
+  const enabled = data.enabled !== false;
+  if ($('#protEnabledChk')) $('#protEnabledChk').checked = enabled;
+  if ($('#protStatEnabled')) {
+    $('#protStatEnabled').textContent = enabled ? 'ENABLED' : 'DISABLED';
+    $('#protStatEnabled').style.color = enabled ? '#4ade80' : '#f87171';
+  }
+  const bots = data.bots || [];
+  const activeBotsCount = bots.filter(b => b.enabled !== false).length;
+  if ($('#protStatBots')) $('#protStatBots').textContent = activeBotsCount;
+  if ($('#cntProtected')) $('#cntProtected').textContent = activeBotsCount;
+  if ($('#protStatSynced')) $('#protStatSynced').textContent = data.synced_links_count ?? data.synced_masked_links_count ?? 0;
+  if ($('#protStatClusters')) $('#protStatClusters').textContent = (data.clusters || []).length;
+
+  const rules = data.rules || {};
+  if ($('#protRuleAliasChk')) $('#protRuleAliasChk').checked = rules.block_double_underscore_alias !== false;
+  if ($('#protRulePayloadChk')) $('#protRulePayloadChk').checked = rules.block_yu3elk_payload !== false;
+  if ($('#protRuleMaskedChk')) $('#protRuleMaskedChk').checked = rules.block_masked_redirect_routes !== false;
+  if ($('#protCustomPatternsInput')) $('#protCustomPatternsInput').value = (rules.custom_patterns || []).join(', ');
+  if ($('#protMessageInput')) $('#protMessageInput').value = data.message || '';
+
+  const tb = $('#protBotsTableBody');
+  if (!tb) return;
+  if (!bots.length) {
+    tb.innerHTML = `<tr><td colspan="5" style="color:var(--mute);text-align:center;padding:18px">No protected bots configured yet.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = bots.map(b => `
+    <tr>
+      <td>
+        <b>${esc(b.name || b.username)}</b>
+        ${b.repo ? `<div style="font-size:11px;color:var(--mute)"><a href="${esc(b.repo)}" target="_blank" rel="noreferrer">${esc(b.repo)}</a></div>` : ''}
+      </td>
+      <td class="mono"><a href="https://t.me/${esc((b.username || '').replace(/^@/, ''))}" target="_blank" rel="noreferrer">@${esc((b.username || '').replace(/^@/, ''))}</a></td>
+      <td class="mono">${esc(b.db_name || 'Auto / Signature')}</td>
+      <td>
+        <input type="checkbox" class="prot-bot-toggle" data-uname="${esc(b.username)}" ${b.enabled !== false ? 'checked' : ''}>
+      </td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="danger sm prot-bot-del" data-uname="${esc(b.username)}">🗑 Remove</button>
+      </td>
+    </tr>
+  `).join('');
+
+  tb.querySelectorAll('.prot-bot-toggle').forEach(chk => {
+    chk.onchange = async () => {
+      const r = await api('/api/protected/bot', {
+        method: 'PUT',
+        body: { username: chk.dataset.uname, enabled: chk.checked }
+      });
+      renderProtectedState(r);
+      showToast(`${chk.dataset.uname} protection ${chk.checked ? 'enabled' : 'disabled (links are now bypassable)'}`);
+    };
+  });
+  tb.querySelectorAll('.prot-bot-del').forEach(btn => {
+    btn.onclick = async () => {
+      const r = await api('/api/protected/bot?username=' + encodeURIComponent(btn.dataset.uname), { method: 'DELETE' });
+      renderProtectedState(r);
+      showToast(`Removed ${btn.dataset.uname} — its links are now unprotected!`);
+    };
+  });
+}
+
+async function loadProtected() {
+  const data = await api('/api/protected');
+  renderProtectedState(data);
+}
+
+// Premium Plans & Paytm Auto-Payment Manager
+function renderPremiumState(data) {
+  if (!data) return;
+  const enabled = data.premium_only_enabled !== false;
+  const freeLim = data.free_trial_limit ?? 3;
+  if ($('#premOnlyEnabledChk')) $('#premOnlyEnabledChk').checked = enabled;
+  if ($('#freeTrialLimitInput')) $('#freeTrialLimitInput').value = freeLim;
+  if ($('#premStatEnabled')) {
+    $('#premStatEnabled').textContent = enabled ? 'ENABLED' : 'DISABLED';
+    $('#premStatEnabled').style.color = enabled ? '#4ade80' : '#f87171';
+  }
+  if ($('#premStatTrialSub')) $('#premStatTrialSub').textContent = `${freeLim} lifetime free uses / user`;
+  if ($('#premStatActiveUsers')) $('#premStatActiveUsers').textContent = data.active_premium_count || 0;
+  if ($('#cntPremium')) $('#cntPremium').textContent = data.active_premium_count || 0;
+  if ($('#premStatMid')) $('#premStatMid').textContent = data.paytm_mid || 'PKNtOC25387320837859';
+  if ($('#premStatUpi')) $('#premStatUpi').textContent = data.upi_id || 'paytmqr6mexnc@ptys';
+  if ($('#premStatLogChan')) $('#premStatLogChan').textContent = data.payment_log_channel_id || '-1003270558605';
+
+  if ($('#paytmMidInput')) $('#paytmMidInput').value = data.paytm_mid || '';
+  if ($('#upiIdInput')) $('#upiIdInput').value = data.upi_id || '';
+  if ($('#upiPayeeNameInput')) $('#upiPayeeNameInput').value = data.upi_payee_name || '';
+  if ($('#paymentApiUrlInput')) $('#paymentApiUrlInput').value = data.payment_api_url || '';
+  if ($('#paymentLogChanInput')) $('#paymentLogChanInput').value = data.payment_log_channel_id || '-1003270558605';
+  if ($('#ownerContactUrlInput')) $('#ownerContactUrlInput').value = data.owner_contact_url || '';
+  if ($('#paymentMaxMinInput')) $('#paymentMaxMinInput').value = data.payment_max_minutes ?? 15;
+  if ($('#paymentVerifyIntInput')) $('#paymentVerifyIntInput').value = data.payment_verify_interval ?? 12;
+
+  const plans = data.plans || [];
+  const plansTb = $('#premPlansTableBody');
+  if (plansTb) {
+    if (!plans.length) {
+      plansTb.innerHTML = `<tr><td colspan="6" style="color:var(--mute);text-align:center;padding:18px">No plans configured.</td></tr>`;
+    } else {
+      plansTb.innerHTML = plans.map(p => `
+        <tr>
+          <td class="mono"><b>${esc(p.key)}</b><div style="font-size:11px;color:var(--mute)">type: ${esc(p.plan_type || p.key)}</div></td>
+          <td><b>${esc(p.name)}</b> ${p.badge ? `<span class="pill ok" style="font-size:11px;margin-left:6px">${esc(p.badge)}</span>` : ''}</td>
+          <td class="mono">${p.days} Days</td>
+          <td class="mono" style="font-weight:700;color:#4ade80">₹${p.amount}</td>
+          <td>${p.enabled !== false ? '<span class="pill ok">ENABLED</span>' : '<span class="pill warn">HIDDEN</span>'}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="ghost sm edit-plan-btn"
+              data-key="${esc(p.key)}"
+              data-type="${esc(p.plan_type || p.key)}"
+              data-name="${esc(p.name)}"
+              data-days="${p.days}"
+              data-amt="${p.amount}"
+              data-badge="${esc(p.badge || '')}">✏️ Edit</button>
+            <button class="danger sm del-plan-btn" data-key="${esc(p.key)}">🗑</button>
+          </td>
+        </tr>
+      `).join('');
+
+      plansTb.querySelectorAll('.edit-plan-btn').forEach(b => {
+        b.onclick = () => {
+          $('#planKeyInput').value = b.dataset.key;
+          $('#planTypeInput').value = b.dataset.type;
+          $('#planNameInput').value = b.dataset.name;
+          $('#planDaysInput').value = b.dataset.days;
+          $('#planAmountInput').value = b.dataset.amt;
+          $('#planBadgeInput').value = b.dataset.badge;
+          $('#planKeyInput').focus();
+          showToast(`Loaded plan ${b.dataset.name} into editor!`);
+        };
+      });
+
+      plansTb.querySelectorAll('.del-plan-btn').forEach(b => {
+        b.onclick = async () => {
+          if (!confirm(`Delete plan ${b.dataset.key}?`)) return;
+          const r = await api('/api/premium/plan?key=' + encodeURIComponent(b.dataset.key), { method: 'DELETE' });
+          renderPremiumState(r);
+          showToast(`Deleted plan ${b.dataset.key}`);
+        };
+      });
+    }
+  }
+
+  // Update Plan Type selector in Manual Grant form
+  const sel = $('#premUserPlanTypeInput');
+  if (sel && plans.length) {
+    sel.innerHTML = plans.map(p =>
+      `<option value="${esc(p.plan_type || p.key)}" data-days="${p.days}">${esc(p.plan_type || p.key)} (${esc(p.name)} — ${p.days} Days @ ₹${p.amount})</option>`
+    ).join('') + `<option value="custom" data-days="30">custom (Custom Days)</option>`;
+    sel.onchange = () => {
+      const opt = sel.options[sel.selectedIndex];
+      if (opt && opt.dataset.days) $('#premUserDaysInput').value = opt.dataset.days;
+    };
+  }
+
+  const users = data.active_premium_users || [];
+  const usersTb = $('#premUsersTableBody');
+  if (usersTb) {
+    if (!users.length) {
+      usersTb.innerHTML = `<tr><td colspan="7" style="color:var(--mute);text-align:center;padding:18px">No active premium subscribers yet.</td></tr>`;
+    } else {
+      usersTb.innerHTML = users.map(u => {
+        const remDays = Math.floor((u.remaining_seconds || 0) / 86400);
+        const remHours = Math.floor(((u.remaining_seconds || 0) % 86400) / 3600);
+        return `
+          <tr>
+            <td class="mono"><b>${u.user_id}</b></td>
+            <td>${esc(u.first_name || 'User')} ${u.username ? `<span class="mono" style="color:var(--mute)">(@${esc(u.username)})</span>` : ''}</td>
+            <td><span class="pill ok">${esc(u.plan_label || u.plan_type || 'Premium')}</span></td>
+            <td class="mono">${esc(u.source || 'payment')}</td>
+            <td class="mono" style="color:#38bdf8">${remDays}d ${remHours}h left</td>
+            <td class="mono">${esc(u.expiry_str || '')}</td>
+            <td style="text-align:right">
+              <button class="danger sm revoke-prem-btn" data-uid="${u.user_id}">🗑 Revoke</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      usersTb.querySelectorAll('.revoke-prem-btn').forEach(b => {
+        b.onclick = async () => {
+          if (!confirm(`Revoke Premium access for user ${b.dataset.uid}?`)) return;
+          const r = await api('/api/premium/user?user_id=' + encodeURIComponent(b.dataset.uid), { method: 'DELETE' });
+          renderPremiumState(r);
+          loadDashboard();
+          showToast(`Revoked Premium for ${b.dataset.uid}`);
+        };
+      });
+    }
+  }
+
+  const orders = data.recent_orders || [];
+  const ordersTb = $('#premOrdersTableBody');
+  if (ordersTb) {
+    if (!orders.length) {
+      ordersTb.innerHTML = `<tr><td colspan="7" style="color:var(--mute);text-align:center;padding:18px">No Paytm QR orders generated yet.</td></tr>`;
+    } else {
+      ordersTb.innerHTML = orders.map(o => {
+        const st = o.status || 'pending';
+        let stClass = 'warn';
+        if (st === 'success') stClass = 'ok';
+        else if (st === 'cancelled' || st === 'expired') stClass = 'err';
+        return `
+          <tr>
+            <td class="mono"><b>${esc(o._id || o.order_id)}</b></td>
+            <td class="mono">${o.user_id}</td>
+            <td>${esc(o.plan_label || `${o.days} Days`)}</td>
+            <td class="mono" style="font-weight:700">₹${o.payable_amount || o.amount}</td>
+            <td><span class="pill ${stClass}">${esc(st.toUpperCase())}</span></td>
+            <td class="mono" style="font-size:11.5px">${esc(o.txn_id || '—')}${o.bank_txn_id ? ` / UTR: ${esc(o.bank_txn_id)}` : ''}</td>
+            <td style="color:var(--mute);font-size:12px">${o.created_at ? new Date(o.created_at * 1000).toLocaleString() : '—'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+}
+
+async function loadPremium() {
+  try {
+    const data = await api('/api/premium');
+    renderPremiumState(data);
+  } catch (e) {}
+}
+
+if ($('#refreshPremiumBtn')) {
+  $('#refreshPremiumBtn').onclick = () => { loadPremium(); showToast('Refreshed Premium & Paytm status'); };
+}
+
+if ($('#savePlanBtn')) {
+  $('#savePlanBtn').onclick = async () => {
+    const key = $('#planKeyInput').value.trim();
+    const plan_type = $('#planTypeInput').value.trim() || key;
+    const name = $('#planNameInput').value.trim();
+    const days = parseInt($('#planDaysInput').value, 10) || 30;
+    const amount = parseFloat($('#planAmountInput').value) || 100;
+    const badge = $('#planBadgeInput').value.trim();
+    if (!name) { showToast('Enter a Plan Display Name (e.g. 1 Month)', true); return; }
+    $('#savePlanBtn').disabled = true;
+    try {
+      const r = await api('/api/premium/plan', {
+        method: 'POST',
+        body: { key: key || `plan_${days}d`, plan_type: plan_type || `${days}d`, name, days, amount, badge, enabled: true }
+      });
+      renderPremiumState(r);
+      showToast(`Saved Premium Plan "${name}" (₹${amount} / ${days} Days)!`);
+    } finally {
+      $('#savePlanBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#clearPlanFormBtn')) {
+  $('#clearPlanFormBtn').onclick = () => {
+    $('#planKeyInput').value = '';
+    $('#planTypeInput').value = '';
+    $('#planNameInput').value = '';
+    $('#planDaysInput').value = '';
+    $('#planAmountInput').value = '';
+    $('#planBadgeInput').value = '';
+  };
+}
+
+if ($('#grantPremUserBtn')) {
+  $('#grantPremUserBtn').onclick = async () => {
+    const user_id = $('#premUserIdInput').value.trim();
+    const plan_type = $('#premUserPlanTypeInput').value.trim() || '1_month';
+    const days = parseInt($('#premUserDaysInput').value, 10) || 30;
+    if (!user_id) { showToast('Enter a numeric Telegram User ID', true); return; }
+    $('#grantPremUserBtn').disabled = true;
+    try {
+      const r = await api('/api/premium/user', {
+        method: 'POST',
+        body: { user_id, plan_type, days }
+      });
+      renderPremiumState(r);
+      loadDashboard();
+      showToast(`Activated Premium (${plan_type}, ${days} days) for user ${user_id}!`);
+    } finally {
+      $('#grantPremUserBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#resetFreeTrialUserBtn')) {
+  $('#resetFreeTrialUserBtn').onclick = async () => {
+    const user_id = $('#premUserIdInput').value.trim();
+    if (!user_id) { showToast('Enter a numeric Telegram User ID first', true); return; }
+    await api('/api/premium/reset-free', { method: 'POST', body: { user_id } });
+    showToast(`Reset lifetime free uses to 0 for user ${user_id}!`);
+  };
+}
+
+if ($('#savePaymentSettingsBtn')) {
+  $('#savePaymentSettingsBtn').onclick = async () => {
+    $('#savePaymentSettingsBtn').disabled = true;
+    try {
+      const r = await api('/api/premium/settings', {
+        method: 'POST',
+        body: {
+          premium_only_enabled: $('#premOnlyEnabledChk').checked,
+          free_trial_limit: parseInt($('#freeTrialLimitInput').value, 10) || 3,
+          paytm_mid: $('#paytmMidInput').value.trim(),
+          upi_id: $('#upiIdInput').value.trim(),
+          upi_payee_name: $('#upiPayeeNameInput').value.trim(),
+          payment_api_url: $('#paymentApiUrlInput').value.trim(),
+          payment_log_channel_id: parseInt($('#paymentLogChanInput').value.trim(), 10) || -1003270558605,
+          owner_contact_url: $('#ownerContactUrlInput').value.trim(),
+          payment_max_minutes: parseInt($('#paymentMaxMinInput').value, 10) || 15,
+          payment_verify_interval: parseInt($('#paymentVerifyIntInput').value, 10) || 12,
+        }
+      });
+      renderPremiumState(r);
+      loadDashboard();
+      showToast('Paytm Auto-Payment & Free Trial settings saved!');
+    } finally {
+      $('#savePaymentSettingsBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#protEnabledChk')) {
+  $('#protEnabledChk').onchange = async () => {
+    const r = await api('/api/protected/rules', {
+      method: 'POST',
+      body: { enabled: $('#protEnabledChk').checked }
+    });
+    renderProtectedState(r.protected);
+    showToast('Protected Links Shield updated!');
+  };
+}
+
+if ($('#protSyncNowBtn')) {
+  $('#protSyncNowBtn').onclick = async () => {
+    $('#protSyncNowBtn').disabled = true;
+    try {
+      const r = await api('/api/protected/sync', { method: 'POST', body: {} });
+      renderProtectedState(r.protected);
+      showToast(`Synced ${r.synced || 0} masked shortlinks from protected MongoDB clusters!`);
+    } finally {
+      $('#protSyncNowBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#addProtBotBtn')) {
+  $('#addProtBotBtn').onclick = async () => {
+    const username = $('#protBotUsernameInput').value.trim();
+    const name = $('#protBotNameInput').value.trim();
+    const repo = $('#protBotRepoInput').value.trim();
+    const db_name = $('#protBotDbInput').value.trim();
+    if (!username && !repo) {
+      showToast('Enter a Bot @username or GitHub Repository URL', true);
+      return;
+    }
+    $('#addProtBotBtn').disabled = true;
+    try {
+      const r = await api('/api/protected/bot', {
+        method: 'POST',
+        body: { username: username || repo, name, repo, db_name, enabled: true }
+      });
+      renderProtectedState(r.protected);
+      $('#protBotUsernameInput').value = '';
+      $('#protBotNameInput').value = '';
+      $('#protBotRepoInput').value = '';
+      $('#protBotDbInput').value = '';
+      showToast('Added protected bot & synced to MongoDB!');
+    } finally {
+      $('#addProtBotBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#addProtClusterBtn')) {
+  $('#addProtClusterBtn').onclick = async () => {
+    const uri = $('#protClusterUriInput').value.trim();
+    const name = $('#protClusterNameInput').value.trim();
+    if (!uri) {
+      showToast('Enter a MongoDB URI (mongodb+srv://...)', true);
+      return;
+    }
+    $('#addProtClusterBtn').disabled = true;
+    try {
+      const r = await api('/api/protected/cluster', {
+        method: 'POST',
+        body: { uri, name }
+      });
+      renderProtectedState(r.protected);
+      $('#protClusterUriInput').value = '';
+      $('#protClusterNameInput').value = '';
+      showToast('Added MongoDB cluster & synced masked links!');
+    } finally {
+      $('#addProtClusterBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#saveProtRulesBtn')) {
+  $('#saveProtRulesBtn').onclick = async () => {
+    $('#saveProtRulesBtn').disabled = true;
+    try {
+      const custom_patterns = ($('#protCustomPatternsInput').value || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      const r = await api('/api/protected/rules', {
+        method: 'POST',
+        body: {
+          enabled: $('#protEnabledChk').checked,
+          message: $('#protMessageInput').value,
+          rules: {
+            block_double_underscore_alias: $('#protRuleAliasChk').checked,
+            block_yu3elk_payload: $('#protRulePayloadChk').checked,
+            block_masked_redirect: $('#protRuleMaskedChk').checked,
+            custom_patterns
+          }
+        }
+      });
+      renderProtectedState(r.protected);
+      showToast('Protected Shield rules & message saved!');
+    } finally {
+      $('#saveProtRulesBtn').disabled = false;
+    }
+  };
+}
+
+$('#saveEngineSettingsBtn').onclick = async () => {
+  $('#saveEngineSettingsBtn').disabled = true;
+  try {
+    await api('/api/settings', {
+      method: 'POST',
+      body: {
+        admin_password: $('#adminPassInput').value.trim() || 'admin123',
+        mongo_uri: $('#mongoUriInput').value.trim(),
+        solver_url: $('#solverUrlInput').value.trim(),
+        cache_hours: parseFloat($('#cacheHoursInput').value) || 24,
+        accel_factor: parseFloat($('#accelInput').value) || 0.1,
+        timeout: parseInt($('#timeoutInput').value, 10) || 300,
+        cache_enabled: $('#cacheEnabledChk').checked,
+      }
+    });
+    showToast('Engine & security settings saved!');
+    await loadDashboard();
+  } finally {
+    $('#saveEngineSettingsBtn').disabled = false;
+  }
+};
+
+// Error Logs Viewer
+async function loadLogs() {
+  const logs = await api('/api/logs');
+  $('#cntLogs').textContent = logs.length;
+  const box = $('#logsContainer');
+  if (!logs.length) {
+    box.innerHTML = `<div style="color:var(--mute);text-align:center;padding:24px">✅ No error logs recorded.</div>`;
+    return;
+  }
+  box.innerHTML = logs.map(item => `
+    <div class="job" style="margin-top:10px">
+      <div class="job-h">
+        <span class="st ${item.ai_resolved ? 'ok' : 'err'}">${item.ai_resolved ? '✅ FIXED BY AI' : '✖ ERROR'}</span>
+        <span class="src mono">${esc(item.source)}</span>
+        <span style="color:var(--mute);font-size:12px">${esc(item.origin || 'web')}${item.user_id ? ` · UID ${item.user_id}` : ''} · ${new Date((item.at || 0) * 1000).toLocaleString()}</span>
+        <button class="ok-btn sm fix-ai-log" data-id="${esc(item.id)}" data-src="${esc(item.source)}" data-err="${esc(item.error)}">🤖 Fix with AI</button>
+        <button class="danger sm del-log" data-id="${esc(item.id)}">🗑</button>
+      </div>
+      <div class="res ${item.ai_resolved ? '' : 'err'}" style="font-size:13px">
+        <b>Reason:</b> ${esc(item.error)}
+        ${item.ai_fix_note ? `<div style="margin-top:4px;color:#86efac"><b>🧠 AI Fix Summary:</b> ${esc(item.ai_fix_note)}</div>` : ''}
+      </div>
+      <pre class="log">${esc((item.log || []).join('\n') || 'No step trace recorded.')}</pre>
+    </div>
+  `).join('');
+
+  box.querySelectorAll('.fix-ai-log').forEach(b => {
+    b.onclick = async () => {
+      $$('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      $$('.tab-pane').forEach(p => p.classList.remove('active'));
+      const aiTabBtn = document.querySelector('.tab-btn[data-tab="tabAI"]');
+      if (aiTabBtn) aiTabBtn.classList.add('active');
+      $('#tabAI').classList.add('active');
+      $('#aiTargetUrlInput').value = b.dataset.src || '';
+      $('#aiPromptInput').value = `Diagnose and fix error on ${b.dataset.src}: ${b.dataset.err}`;
+      const run = await api('/api/ai/run', {
+        method: 'POST',
+        body: {
+          trigger: 'error_log_button',
+          error_id: b.dataset.id,
+          target_url: b.dataset.src,
+          prompt: `Diagnose and fix error on ${b.dataset.src}: ${b.dataset.err}`
+        }
+      });
+      showToast('🧠 AI Engineer launched on error log!');
+      attachAiStream(run.id);
+      loadAiState();
+    };
+  });
+
+  box.querySelectorAll('.del-log').forEach(b => {
+    b.onclick = async () => {
+      await api('/api/logs?id=' + encodeURIComponent(b.dataset.id), { method: 'DELETE' });
+      loadLogs();
+      loadDashboard();
+    };
+  });
+}
+
+$('#refreshLogsBtn').onclick = loadLogs;
+$('#clearAllLogsBtn').onclick = async () => {
+  await api('/api/logs?all=1', { method: 'DELETE' });
+  showToast('Cleared all error logs');
+  loadLogs();
+  loadDashboard();
+};
+
+// Autonomous AI Engineer & Cloud Code Sync Console
+let __activeAiEs = null;
+let __activeAiRunId = null;
+
+function formatAiEventHtml(ev) {
+  const rawKind = ev.kind || ev.type || 'status';
+  let kind = rawKind;
+  if (rawKind === 'step_log') kind = 'test_step';
+  if (rawKind === 'patch') kind = 'code_diff';
+  if (rawKind === 'verified' || rawKind === 'conclusion') kind = 'success';
+  const ts = ev.ts ? new Date(ev.ts * 1000).toLocaleTimeString() : (ev.at !== undefined ? `+${ev.at}s` : '');
+  let badge = 'ℹ️ STATUS';
+  if (kind === 'thinking') badge = '🧠 DEEP THINKING';
+  else if (kind === 'tool_call') badge = '🔧 TOOL CALL';
+  else if (kind === 'tool_result') badge = '📥 TOOL OUTPUT';
+  else if (kind === 'test_step') badge = '⚡ LIVE BYPASS CHECK';
+  else if (kind === 'code_diff') badge = '🛠 CODE / RULE PATCH';
+  else if (kind === 'success') badge = '✅ DEPLOYED & VERIFIED';
+  else if (kind === 'error') badge = '❌ ERROR / BLOCKED';
+
+  const bodyText = ev.detail || ev.text || '';
+  const dataObj = ev.data || ev.diff || ev.args || ev.result || '';
+  const dataStr = dataObj ? (typeof dataObj === 'string' ? dataObj : JSON.stringify(dataObj, null, 2)) : '';
+  return `
+    <div class="ai-ev ${esc(kind)}">
+      <div class="ai-ev-h">
+        <span><span class="mono" style="opacity:0.8;margin-right:6px">[${esc(badge)}]</span> ${esc(ev.title || '')}</span>
+        <span class="mono" style="font-size:11px;color:var(--mute)">${esc(ts)}</span>
+      </div>
+      ${bodyText ? `<div style="color:#cbd5e1;white-space:pre-wrap;line-height:1.45">${esc(bodyText)}</div>` : ''}
+      ${dataStr ? `<pre class="ai-ev-pre">${esc(dataStr)}</pre>` : ''}
+    </div>
+  `;
+}
+
+function attachAiStream(runId) {
+  if (!runId) return;
+  if (__activeAiRunId === runId && __activeAiEs) return;
+  if (__activeAiEs) {
+    try { __activeAiEs.close(); } catch (e) {}
+    __activeAiEs = null;
+  }
+  __activeAiRunId = runId;
+  const box = $('#aiLiveStreamBox');
+  if (box) box.innerHTML = '';
+  const pill = $('#aiRunStatusPill');
+  if (pill) {
+    pill.textContent = `Running · ${runId}`;
+    pill.className = 'pill warn';
+  }
+  const es = new EventSource(`/api/ai/stream/${encodeURIComponent(runId)}`);
+  __activeAiEs = es;
+  es.onmessage = ev => {
+    try {
+      const m = JSON.parse(ev.data);
+      if (m.event && box) {
+        box.insertAdjacentHTML('beforeend', formatAiEventHtml(m.event));
+        box.scrollTop = box.scrollHeight;
+      }
+      if (m.done) {
+        es.close();
+        __activeAiEs = null;
+        loadAiState();
+        loadDashboard();
+        loadLogs();
+      }
+    } catch (e) {}
+  };
+  es.onerror = () => {
+    try { es.close(); } catch (e) {}
+    __activeAiEs = null;
+  };
+}
+
+async function loadAiState() {
+  try {
+    const st = await api('/api/ai/status');
+    if ($('#aiStatHeal')) {
+      $('#aiStatHeal').textContent = st.auto_heal_enabled ? 'ENABLED' : 'PAUSED';
+      $('#aiStatHeal').style.color = st.auto_heal_enabled ? '#4ade80' : '#f59e0b';
+    }
+    if ($('#aiStatPatrol')) {
+      $('#aiStatPatrol').textContent = st.patrol_enabled ? 'ACTIVE' : 'PAUSED';
+      $('#aiStatPatrol').style.color = st.patrol_enabled ? '#38bdf8' : '#f59e0b';
+      $('#aiStatPatrolSub').textContent = `Runs every ${st.patrol_interval_minutes || 20} mins`;
+    }
+    const dash = await api('/api/dashboard');
+    if ($('#aiStatFixes')) {
+      $('#aiStatFixes').textContent = (dash.stats && dash.stats.ai_fixes) || 0;
+    }
+    const cs = st.code_sync || {};
+    if ($('#aiStatVault')) {
+      $('#aiStatVault').textContent = cs.mongo_connected ? 'PROTECTED' : 'LOCAL';
+      $('#aiStatVaultSub').textContent = cs.github_configured
+        ? `MongoDB + GitHub (${cs.github_repo})`
+        : 'MongoDB code_files active';
+    }
+
+    const cur = st.current_run;
+    const pill = $('#aiRunStatusPill');
+    const meta = $('#aiRunMetaLabel');
+    const box = $('#aiLiveStreamBox');
+    if (cur) {
+      if (meta) {
+        meta.textContent = `Run #${cur.id} · Trigger: ${cur.trigger} · Status: ${(cur.status || '').toUpperCase()}`;
+      }
+      if (cur.status === 'running') {
+        if (pill) {
+          pill.textContent = `⚡ Running #${cur.id}`;
+          pill.className = 'pill warn';
+        }
+        attachAiStream(cur.id);
+      } else {
+        if (pill) {
+          pill.textContent = cur.status === 'completed' ? `✅ Completed #${cur.id}` : `❌ Failed #${cur.id}`;
+          pill.className = 'pill ' + (cur.status === 'completed' ? 'ok' : 'err');
+        }
+        if (box && (!__activeAiEs) && (cur.events || []).length) {
+          box.innerHTML = (cur.events || []).map(formatAiEventHtml).join('');
+          box.scrollTop = box.scrollHeight;
+        }
+      }
+    }
+
+    const filesTb = $('#aiCodeFilesBody');
+    if (filesTb) {
+      const files = cs.files || [];
+      filesTb.innerHTML = files.map(f => `
+        <tr>
+          <td class="mono"><b>${esc(f.file_path)}</b></td>
+          <td class="mono" style="color:#38bdf8">${esc(f.sha256 || '—')}</td>
+          <td class="mono">v${f.revision || 1}</td>
+          <td style="color:var(--mute);font-size:12px">${f.updated_at ? new Date(f.updated_at * 1000).toLocaleTimeString() : 'Synced'}</td>
+        </tr>
+      `).join('');
+    }
+
+    const revTb = $('#aiRevisionsBody');
+    if (revTb) {
+      const revs = cs.recent_revisions || [];
+      if (!revs.length) {
+        revTb.innerHTML = `<tr><td colspan="4" style="color:var(--mute);text-align:center;padding:16px">Initial baseline synced to MongoDB Vault.</td></tr>`;
+      } else {
+        revTb.innerHTML = revs.map(r => `
+          <tr>
+            <td class="mono"><b>${esc(r.revision_id)}</b><div style="font-size:11px;color:var(--mute)">${new Date((r.created_at || 0) * 1000).toLocaleTimeString()}</div></td>
+            <td>
+              <div class="mono" style="font-weight:700">${esc(r.file_path)}</div>
+              <div style="font-size:11.5px;color:var(--mute)">${esc(r.reason || '')}</div>
+            </td>
+            <td>${r.github_pushed ? '<span class="pill ok" style="font-size:11px">Pushed</span>' : '<span class="pill" style="font-size:11px">Mongo Vault</span>'}</td>
+            <td style="text-align:right">
+              <button class="ghost sm rollback-rev-btn" data-rev="${esc(r.revision_id)}">⏪ Rollback</button>
+            </td>
+          </tr>
+        `).join('');
+        revTb.querySelectorAll('.rollback-rev-btn').forEach(btn => {
+          btn.onclick = async () => {
+            if (!confirm(`Rollback code to revision ${btn.dataset.rev}?`)) return;
+            const res = await api('/api/ai/rollback', { method: 'POST', body: { revision_id: btn.dataset.rev } });
+            if (res.ok) {
+              showToast(`Rolled back ${res.file_path} to ${btn.dataset.rev} & hot-reloaded!`);
+              loadAiState();
+            } else {
+              showToast(res.error || 'Rollback failed', true);
+            }
+          };
+        });
+      }
+    }
+  } catch (e) {}
+}
+
+if ($('#aiLaunchBtn')) {
+  $('#aiLaunchBtn').onclick = async () => {
+    const target_url = $('#aiTargetUrlInput').value.trim();
+    const prompt = $('#aiPromptInput').value.trim() || 'Scan all unresolved error logs, research shortener changes & origin IPs, fix issues, verify with live bypass tests, and sync to MongoDB + GitHub.';
+    $('#aiLaunchBtn').disabled = true;
+    try {
+      const run = await api('/api/ai/run', {
+        method: 'POST',
+        body: { trigger: 'web_admin', target_url, prompt }
+      });
+      showToast(`🧠 AI Engineer Run #${run.id} started!`);
+      attachAiStream(run.id);
+      loadAiState();
+    } finally {
+      $('#aiLaunchBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#aiScanErrorsBtn')) {
+  $('#aiScanErrorsBtn').onclick = async () => {
+    const run = await api('/api/ai/run', {
+      method: 'POST',
+      body: {
+        trigger: 'scan_all_errors',
+        prompt: 'Scan all unresolved error logs, diagnose root causes, apply fixes, run live multi-link bypass checks, and sync to MongoDB & GitHub.'
+      }
+    });
+    showToast(`🔍 AI Engineer scanning all error logs (Run #${run.id})…`);
+    attachAiStream(run.id);
+    loadAiState();
+  };
+}
+
+if ($('#aiForceSyncBtn')) {
+  $('#aiForceSyncBtn').onclick = async () => {
+    $('#aiForceSyncBtn').disabled = true;
+    try {
+      const r = await api('/api/ai/sync', {
+        method: 'POST',
+        body: { reason: 'Manual Admin Vault & GitHub Sync' }
+      });
+      showToast(`☁️ Synced ${(r.mongo_synced || []).length} files to MongoDB Anti-Rollback Vault!`);
+      loadAiState();
+    } finally {
+      $('#aiForceSyncBtn').disabled = false;
+    }
+  };
+}
+
+if ($('#aiRefreshStateBtn')) {
+  $('#aiRefreshStateBtn').onclick = () => { loadAiState(); showToast('Refreshed AI Engineer console'); };
+}
+
+if ($('#saveAiSettingsBtn')) {
+  $('#saveAiSettingsBtn').onclick = async () => {
+    $('#saveAiSettingsBtn').disabled = true;
+    try {
+      await api('/api/settings', {
+        method: 'POST',
+        body: {
+          ai_auto_heal: $('#aiAutoHealChk').checked,
+          ai_patrol_enabled: $('#aiPatrolChk').checked,
+          ai_patrol_interval_minutes: parseInt($('#aiPatrolIntervalInput').value, 10) || 20,
+          ai_provider: $('#aiProviderInput').value.trim() || 'auto',
+          ai_base_url: $('#aiBaseUrlInput').value.trim(),
+          ai_model: $('#aiModelInput').value.trim() || 'openai',
+          ai_api_key: $('#aiApiKeyInput').value.trim(),
+          github_repo: $('#githubRepoInput').value.trim() || 'Urvashi212144/gss-free',
+          github_branch: $('#githubBranchInput').value.trim() || 'main',
+          github_token: $('#githubTokenInput').value.trim(),
+        }
+      });
+      showToast('AI Engineer & GitHub Sync settings saved!');
+      await loadAiState();
+      await loadDashboard();
+    } finally {
+      $('#saveAiSettingsBtn').disabled = false;
+    }
+  };
+}
+
+// Users & Broadcast
+async function loadUsers() {
+  const q = $('#userSearchInput').value.trim();
+  const users = await api('/api/users?q=' + encodeURIComponent(q));
+  $('#cntUsers').textContent = users.length;
+  const tb = $('#usersTableBody');
+  if (!users.length) {
+    tb.innerHTML = `<tr><td colspan="6" style="color:var(--mute);text-align:center;padding:24px">No Telegram users found.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = users.map(u => `
+    <tr>
+      <td class="mono"><b>${u.user_id}</b></td>
+      <td>${esc(u.first_name || '')} ${u.username ? `<span class="mono" style="color:var(--mute)">(@${esc(u.username)})</span>` : ''}</td>
+      <td class="mono">${u.bypass_count || 0}</td>
+      <td style="color:var(--mute)">${new Date((u.last_active || 0) * 1000).toLocaleString()}</td>
+      <td>${u.banned ? '<span class="pill err">BANNED</span>' : '<span class="pill ok">ACTIVE</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="${u.banned ? 'ok-btn' : 'danger'} sm toggle-ban" data-uid="${u.user_id}" data-ban="${u.banned ? '0' : '1'}">${u.banned ? '✅ Unban' : '🚫 Ban'}</button>
+        <button class="ghost sm del-user" data-uid="${u.user_id}">🗑</button>
+      </td>
+    </tr>
+  `).join('');
+
+  tb.querySelectorAll('.toggle-ban').forEach(b => {
+    b.onclick = async () => {
+      await api('/api/users/ban', { method: 'POST', body: { user_id: b.dataset.uid, banned: b.dataset.ban === '1' } });
+      showToast('Updated user status');
+      loadUsers();
+    };
+  });
+  tb.querySelectorAll('.del-user').forEach(b => {
+    b.onclick = async () => {
+      await api('/api/users?user_id=' + encodeURIComponent(b.dataset.uid), { method: 'DELETE' });
+      loadUsers();
+      loadDashboard();
+    };
+  });
+}
+
+$('#refreshUsersBtn').onclick = loadUsers;
+$('#userSearchInput').oninput = loadUsers;
+
+$('#sendBroadcastBtn').onclick = async () => {
+  const message = $('#broadcastTextInput').value.trim();
+  if (!message) { showToast('Enter broadcast message first', true); return; }
+  $('#sendBroadcastBtn').disabled = true;
+  $('#broadcastResult').textContent = 'Sending broadcast…';
+  try {
+    const r = await api('/api/broadcast', { method: 'POST', body: { message } });
+    if (r.error) {
+      $('#broadcastResult').textContent = 'Error: ' + r.error;
+      showToast(r.error, true);
+      return;
+    }
+    $('#broadcastResult').textContent = `✔ Delivered to ${r.delivered} / ${r.total} users (${r.failed} failed)`;
+    $('#broadcastTextInput').value = '';
+    showToast('Broadcast complete!');
+  } finally {
+    $('#sendBroadcastBtn').disabled = false;
+  }
+};
+
+// Multi-Device Tunnel Pool & Per-Shortener Routing
+function renderTunnelPool(data) {
+  const devices = data.devices || [];
+  const shorteners = data.shorteners || [];
+  const onlineCnt = data.online_count || 0;
+  const enabledShortCnt = data.enabled_shorteners_count || 0;
+
+  if ($('#stTunnelDevs')) {
+    $('#stTunnelDevs').textContent = `${onlineCnt} / ${devices.length}`;
+  }
+  if ($('#stShortenersOn')) {
+    $('#stShortenersOn').textContent = `${enabledShortCnt} / ${shorteners.length}`;
+  }
+
+  const devBadge = $('#devicesPoolBadge');
+  if (devBadge) {
+    devBadge.textContent = `${onlineCnt} Online / ${devices.length} Total`;
+    devBadge.className = 'pill ' + (onlineCnt > 0 ? 'ok' : 'warn');
+  }
+
+  const shBadge = $('#shortenersBadge');
+  if (shBadge) {
+    shBadge.textContent = `${enabledShortCnt} / ${shorteners.length} using tunnel`;
+    shBadge.className = 'pill ' + (enabledShortCnt > 0 ? 'ok' : 'warn');
+  }
+
+  const tb = $('#tunnelDevicesTableBody');
+  if (tb) {
+    if (!devices.length) {
+      tb.innerHTML = `<tr><td colspan="6" style="color:var(--mute);text-align:center;padding:22px">
+        No tunnel devices connected yet. Download the <b>Android APK</b> or <b>PC Tunnel Software</b> above and launch it on your phone or laptop — it will appear here automatically!
+      </td></tr>`;
+    } else {
+      tb.innerHTML = devices.map(d => {
+        const icon = d.device_type === 'android' ? '📱' : '💻';
+        const role = d.role || (d.online ? 'STANDBY' : 'OFFLINE');
+        let roleClass = 'warn';
+        if (role.startsWith('ACTIVE')) roleClass = 'ok';
+        else if (role === 'OFFLINE') roleClass = 'err';
+        const ageStr = d.online ? (d.ws_connected ? 'Live WS' : `${d.age_seconds || 0}s ago`) : 'Offline';
+        return `
+          <tr>
+            <td>
+              <div style="font-weight:700">${icon} ${esc(d.device_name || d.device_id)}</div>
+              <div class="mono" style="font-size:11.5px;color:var(--mute)">${esc(d.device_id)} ${d.platform_info ? '· ' + esc(d.platform_info) : ''}</div>
+            </td>
+            <td>
+              <div class="mono" style="font-weight:700;color:#38bdf8">${esc(d.public_ip || '—')}</div>
+              <div style="font-size:11.5px;color:var(--mute)">${esc([d.isp, d.country].filter(Boolean).join(' · ') || 'Residential IP')}</div>
+            </td>
+            <td class="mono">
+              <div><span class="pill" style="padding:2px 8px;font-size:11px">${esc((d.tunnel_mode || 'tunnel').toUpperCase())}</span></div>
+              <div style="font-size:11.5px;color:var(--mute);margin-top:4px">${d.total_requests || 0} reqs · ${ageStr}</div>
+            </td>
+            <td>
+              <span class="pill ${roleClass}">${esc(role)}</span>
+            </td>
+            <td>
+              <label class="switch" title="Enable or disable this device's tunnel">
+                <input type="checkbox" class="toggle-dev-chk" data-did="${esc(d.device_id)}" ${d.enabled ? 'checked' : ''}>
+                <span class="slider"></span>
+              </label>
+            </td>
+            <td style="text-align:right;white-space:nowrap">
+              ${d.is_active_selected
+                ? `<span class="pill ok" style="font-size:11.5px">⭐ Primary Active</span>`
+                : `<button class="ok-btn sm set-primary-dev" data-did="${esc(d.device_id)}">⚡ Use Primary</button>`
+              }
+              <button class="ghost sm test-dev-btn" data-did="${esc(d.device_id)}">🔍 Test</button>
+              <button class="danger sm del-dev-btn" data-did="${esc(d.device_id)}">🗑</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      tb.querySelectorAll('.toggle-dev-chk').forEach(chk => {
+        chk.onchange = async () => {
+          const r = await api('/api/tunnels/toggle', {
+            method: 'POST',
+            body: { device_id: chk.dataset.did, enabled: chk.checked }
+          });
+          renderTunnelPool(r);
+          loadDashboard();
+          showToast(`Device tunnel ${chk.checked ? 'ENABLED' : 'DISABLED (Idle)'}`);
+        };
+      });
+
+      tb.querySelectorAll('.set-primary-dev').forEach(btn => {
+        btn.onclick = async () => {
+          const r = await api('/api/tunnels/primary', {
+            method: 'POST',
+            body: { device_id: btn.dataset.did }
+          });
+          renderTunnelPool(r);
+          loadDashboard();
+          showToast('Primary active tunnel device updated! Other enabled devices set to Standby/Fallback.');
+        };
+      });
+
+      tb.querySelectorAll('.test-dev-btn').forEach(btn => {
+        btn.onclick = async () => {
+          btn.disabled = true;
+          btn.textContent = '…';
+          try {
+            const r = await api('/api/tunnels/test', {
+              method: 'POST',
+              body: { device_id: btn.dataset.did }
+            });
+            if (r.ok) {
+              showToast(`✅ ${r.device_name || btn.dataset.did}: Exit IP ${r.ip} (${r.org || r.country || 'OK'})`);
+            } else {
+              showToast(`❌ Tunnel test failed: ${r.error || 'Unreachable'}`, true);
+            }
+          } finally {
+            btn.disabled = false;
+            btn.textContent = '🔍 Test';
+          }
+        };
+      });
+
+      tb.querySelectorAll('.del-dev-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const r = await api('/api/tunnels?device_id=' + encodeURIComponent(btn.dataset.did), { method: 'DELETE' });
+          renderTunnelPool(r);
+          loadDashboard();
+          showToast('Removed tunnel device');
+        };
+      });
+    }
+  }
+
+  const grid = $('#shortenersGrid');
+  if (grid) {
+    grid.innerHTML = shorteners.map(s => `
+      <div class="shortener-item ${s.enabled ? 'on' : ''}">
+        <div style="min-width:0">
+          <div class="shortener-name">${esc(s.name)}</div>
+          <div class="shortener-dom mono">${esc(s.domain)} · <span style="color:${s.enabled ? '#4ade80' : 'var(--mute)'};font-weight:700">${s.enabled ? '🛡 TUNNEL ON' : '🌐 DIRECT'}</span></div>
+        </div>
+        <div class="row" style="gap:6px;flex-wrap:nowrap">
+          <label class="switch" title="Toggle tunnel usage for ${esc(s.domain)}">
+            <input type="checkbox" class="toggle-shortener-chk" data-dom="${esc(s.domain)}" ${s.enabled ? 'checked' : ''}>
+            <span class="slider"></span>
+          </label>
+          ${s.custom ? `<button class="danger sm del-shortener-btn" data-dom="${esc(s.domain)}" style="padding:3px 7px">×</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+
+    grid.querySelectorAll('.toggle-shortener-chk').forEach(chk => {
+      chk.onchange = async () => {
+        const dom = chk.dataset.dom;
+        const on = chk.checked;
+        const r = await api('/api/shorteners/toggle', {
+          method: 'POST',
+          body: { domain: dom, enabled: on }
+        });
+        renderTunnelPool(r);
+        loadDashboard();
+        showToast(`${dom}: ${on ? '🛡 Tunnel ENABLED (Live!)' : '🌐 Switched to Direct Mode'}`);
+      };
+    });
+
+    grid.querySelectorAll('.del-shortener-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const r = await api('/api/shorteners?domain=' + encodeURIComponent(btn.dataset.dom), { method: 'DELETE' });
+        renderTunnelPool(r);
+        showToast('Removed custom shortener');
+      };
+    });
+  }
+}
+
+async function loadTunnelsAndShorteners() {
+  try {
+    const r = await api('/api/tunnels');
+    renderTunnelPool(r);
+  } catch (e) {}
+}
+
+$('#refreshDevicesBtn').onclick = () => { loadTunnelsAndShorteners(); loadDashboard(); showToast('Refreshed tunnel devices'); };
+$('#dlAndroidApkBtn').onclick = () => {
+  const tok = localStorage.getItem('g2s_admin_token') || '';
+  window.open('/api/tunnels/download/android?key=' + encodeURIComponent($('#adminPassInput').value || '') + '&token=' + encodeURIComponent(tok), '_blank');
+};
+$('#dlPcTunnelBtn').onclick = () => {
+  const tok = localStorage.getItem('g2s_admin_token') || '';
+  window.open('/api/tunnels/download/pc?key=' + encodeURIComponent($('#adminPassInput').value || '') + '&token=' + encodeURIComponent(tok), '_blank');
+};
+
+$('#enableAllShortenersBtn').onclick = async () => {
+  const r = await api('/api/shorteners/toggle', { method: 'POST', body: { all: true, enabled: true } });
+  renderTunnelPool(r);
+  loadDashboard();
+  showToast('🛡 Enabled tunnel for ALL shorteners!');
+};
+
+$('#disableAllShortenersBtn').onclick = async () => {
+  const r = await api('/api/shorteners/toggle', { method: 'POST', body: { all: true, enabled: false } });
+  renderTunnelPool(r);
+  loadDashboard();
+  showToast('🌐 Disabled tunnel for all shorteners (Default Direct Mode)');
+};
+
+$('#addCustomShortenerBtn').onclick = async () => {
+  const dom = $('#customShortenerDomain').value.trim();
+  const name = $('#customShortenerName').value.trim();
+  if (!dom) { showToast('Enter a shortener domain (e.g. example.com)', true); return; }
+  const r = await api('/api/shorteners/toggle', {
+    method: 'POST',
+    body: { domain: dom, name: name || dom, enabled: false }
+  });
+  $('#customShortenerDomain').value = '';
+  $('#customShortenerName').value = '';
+  renderTunnelPool(r);
+  showToast(`Added ${dom} (default: Disabled)`);
+};
+
+async function refreshAll() {
+  await Promise.all([loadDashboard(), loadTunnelsAndShorteners(), loadSettings(), loadProtected(), loadPremium(), loadCache(), loadAiState()]);
+  testExitIp();
+}
+
+$('#restartBotBtn').onclick = async () => {
+  if (!confirm('Restart the Bot & Browser Workers now?\n\nThis will also pull and apply any latest code/rule updates from MongoDB immediately.')) return;
+  const btn = $('#restartBotBtn');
+  const origTxt = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Restarting…';
+  try {
+    const r = await api('/api/system/restart', { method: 'POST', body: { mode: 'full' } });
+    showToast(r.message || 'Restarting Bot & Server now…');
+    // Wait briefly for os.execv replacement, then poll /api/health until back online
+    await new Promise(res => setTimeout(res, 2200));
+    for (let i = 0; i < 15; i++) {
+      try {
+        const h = await fetch('/api/health', { cache: 'no-store' });
+        if (h.ok) {
+          showToast('✅ Bot & Browser Workers restarted and online!');
+          await refreshAll();
+          break;
+        }
+      } catch (e) {}
+      await new Promise(res => setTimeout(res, 1200));
+    }
+  } catch (e) {
+    showToast('Restart signal sent — reconnecting…');
+    await new Promise(res => setTimeout(res, 3000));
+    try { await refreshAll(); } catch (_) {}
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origTxt;
+  }
+};
+
+// Auto-refresh tunnel device pool every 12s while logged in
+setInterval(() => {
+  if ($('#appView').style.display !== 'none') {
+    loadTunnelsAndShorteners();
+    loadDashboard();
+  }
+}, 12000);
+
+// Initial Auth Check
+(async () => {
+  try {
+    const me = await fetch('/api/auth/me').then(r => r.json());
+    if (me.authenticated) {
+      showApp();
+    } else {
+      showLogin();
+    }
+  } catch (e) {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

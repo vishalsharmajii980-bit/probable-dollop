@@ -1,0 +1,314 @@
+{
+  "mongo_uri": "mongodb+srv://shauryasharma9940_db_user:hi1OxTU3GdXFtRLf@g2sv2.fnvvosz.mongodb.net/?appName=G2SV2",
+  "brand_name": "TheDrunkBots",
+  "admin_password": "admin123",
+  "telegram_bot_token": "8958607022:AAHvO7wuHe3K-vFdZY_AN2nH6DXiSgiY-FE",
+  "telegram_api_id": 25396020,
+  "telegram_api_hash": "228ea638bed51dd4ae3cc9e4e51e198c",
+  "owner_id": 8584220782,
+  "admin_ids": [
+    8584220782
+  ],
+  "start_photo": "https://i.ibb.co/1Nx1jMn/IMG-20261005-021725.png",
+  "welcome_message": "👋 <b>Hey {first_name}!</b>\n<blockquote>⚡ <b>Send me any supported shortlink and I will bypass ads, timers & captchas automatically to give you the direct destination link!</b></blockquote>\n\n✨ <b>𝗙𝗘𝗔𝗧𝗨𝗥𝗘𝗦 :</b>\n<blockquote>• 🚀 <b>Instant Cloud Cache</b> (0.01s for repeated links)\n• 📊 <b>Live Progress Bar & ETA</b> while bypassing\n• 🛡 <b>Auto Turnstile & Multi-Step Solver</b>\n• 🔗 <b>25+ Shorteners Supported</b></blockquote>\n━━━━━━━━━━━━━━━━━━━━━━\n🏷 <b>𝗣𝗢𝗪𝗘𝗥𝗘𝗗 𝗕𝗬 :</b> @TheDrunkBots",
+  "updates_channel": "https://t.me/TheDrunkBots",
+  "force_sub_enabled": true,
+  "force_sub_channels": [
+    {
+      "chat_id": "-1003768452343",
+      "title": "TheDrunkBots Official",
+      "invite_link": "https://t.me/+e2xem-7b7-c3ZTM1",
+      "api_chat_id": "-1004462643599"
+    }
+  ],
+  "protected_links_enabled": true,
+  "protected_bots": [
+    {
+      "id": "web-series-bot-new",
+      "name": "WEB-SERIES-BOT-NEW",
+      "username": "TheOnlyFapsRoBot",
+      "repo": "https://github.com/amazedreamer/WEB-SERIES-BOT-NEW",
+      "db_name": "OnlyFapsFileShareBot",
+      "enabled": true
+    },
+    {
+      "id": "the-viral-meme-new",
+      "name": "THE-VIRAL-MEME-NEW",
+      "username": "D2NEWSxRoBot",
+      "repo": "https://github.com/amazedreamer/THE-VIRAL-MEME-NEW",
+      "db_name": "TheToxicMeme",
+      "enabled": true
+    },
+    {
+      "id": "dd-free-dish-2-0",
+      "name": "DD-Free-Dish-2.0",
+      "username": "OGNewsRoBot",
+      "repo": "https://github.com/amazedreamer/DD-Free-Dish-2.0",
+      "db_name": "DailyPrimeNews",
+      "enabled": true
+    },
+    {
+      "id": "dx-free-dish-new",
+      "name": "DX-FREE-DISH-NEW",
+      "username": "NewsAndFormatBot",
+      "repo": "https://github.com/amazedreamer/DX-FREE-DISH-NEW",
+      "db_name": "RealmeUneven",
+      "enabled": true
+    },
+    {
+      "id": "the-eb-new",
+      "name": "THE-EB-NEW",
+      "username": "ThePinkNewsRoBot",
+      "repo": "https://github.com/amazedreamer/THE-EB-NEW",
+      "db_name": "FileStoreCopy",
+      "enabled": true
+    },
+    {
+      "id": "cuteheaven-bot-new",
+      "name": "CUTEHEAVEN-BOT-NEW",
+      "username": "officialcuteHeavenBOT",
+      "repo": "https://github.com/amazedreamer/CUTEHEAVEN-BOT-NEW",
+      "db_name": "CUTEHEAVEN",
+      "enabled": true
+    },
+    {
+      "id": "king-news-bot",
+      "name": "KINGFISHERNEWS Bot",
+      "username": "KINGNEWSROBOT",
+      "repo": "https://github.com/amazedreamer/XD-Free-Dish",
+      "db_name": "KINGFISHERNEWS",
+      "enabled": true
+    },
+    {
+      "id": "dd-delivery-girl-bot",
+      "name": "PromoCHBot",
+      "username": "DDdeliveryGirlRoBot",
+      "repo": "https://github.com/amazedreamer/DX-FREE-DISH-NEW",
+      "db_name": "PromoCHBot",
+      "enabled": true
+    },
+    {
+      "id": "contentx_robot",
+      "name": "CONTENT-X-NEW",
+      "username": "contentx_roBOT",
+      "repo": "https://github.com/elevatexolive-art/CONTENT-X-NEW",
+      "db_name": "filestore3",
+      "enabled": true
+    },
+    {
+      "id": "ddnewsxdbot",
+      "name": "XD-Free-Dish",
+      "username": "DDNewsXDBot",
+      "repo": "https://github.com/amazedreamer/XD-Free-Dish",
+      "db_name": "NewUpdate",
+      "enabled": true
+    }
+  ],
+  "removed_protected_bots": [
+    "xd-free-dish"
+  ],
+  "protected_mongo_clusters": [
+    {
+      "id": "cluster-cuteheaven",
+      "name": "CuteHeaven Cluster (ra1oy8c)",
+      "uri": "mongodb+srv://harshraja200865_db_user:ZBgFiRZCZH2H1cvX@cluster0.ra1oy8c.mongodb.net/?appName=Cluster0",
+      "databases": [
+        "CUTEHEAVEN"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "cluster-urvashiix",
+      "name": "Urvashiix Cluster (evuqrai)",
+      "uri": "mongodb+srv://urvashiix:dThGnaimQESSvwFT@urvashiix.evuqrai.mongodb.net/?appName=urvashiix",
+      "databases": [
+        "RealmeUneven",
+        "TheToxicMeme",
+        "DailyPrimeNews",
+        "PromoCHBot"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "cluster-iomykdc",
+      "name": "XD / KingNews Cluster (iomykdc)",
+      "uri": "mongodb+srv://Test:aloksingh@cluster0.iomykdc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0",
+      "databases": [
+        "NewUpdate",
+        "KINGFISHERNEWS",
+        "FiesSNew"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "cluster-5ge2hgy",
+      "name": "EB / WebSeries Cluster (5ge2hgy)",
+      "uri": "mongodb+srv://sameerpandey1:k9TPWFNg2jK4PDET@cluster0.5ge2hgy.mongodb.net/?appName=Cluster0",
+      "databases": [
+        "FileStoreCopy",
+        "OnlyFapsFileShareBot",
+        "POMPOM20",
+        "Exclusive2robot"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "cluster-11100a",
+      "name": "CONTENT-X-NEW Cluster",
+      "uri": "mongodb+srv://elevatexolive_db_user:uao5LkWqPFDnWQZM@contentx.6brbktb.mongodb.net/?appName=CONTENTX",
+      "databases": [
+        "filestore3"
+      ],
+      "enabled": true
+    }
+  ],
+  "protected_rules": {
+    "block_double_underscore_alias": false,
+    "block_yu3elk_payload": false,
+    "block_masked_redirect_routes": false,
+    "custom_patterns": []
+  },
+  "protected_message": "━━━━━━━━━━━━━━━━━━━━━━\n🛡 • <b>𝗣𝗥𝗢𝗧𝗘𝗖𝗧𝗘𝗗 𝗟𝗜𝗡𝗞 • 🛡</b>\n━━━━━━━━━━━━━━━━━━━━━━\n🚫 <b>This link cannot be bypassed!</b>\n\n<blockquote>🔒 <b>TheDrunkBots Security Shield</b>\nPlease open the link in your browser and complete the verification steps directly to support our bots and unlock your content.</blockquote>\n━━━━━━━━━━━━━━━━━━━━━━",
+  "premium_only_enabled": true,
+  "free_trial_limit": 3,
+  "premium_plans": [
+    {
+      "key": "plan_1m",
+      "plan_type": "1_month",
+      "name": "1 Month",
+      "label": "1 Month",
+      "days": 30,
+      "amount": 100,
+      "price_str": "₹ 100",
+      "badge": "Popular",
+      "enabled": true
+    },
+    {
+      "key": "plan_3m",
+      "plan_type": "3_months",
+      "name": "3 Months",
+      "label": "3 Months",
+      "days": 90,
+      "amount": 250,
+      "price_str": "₹ 250",
+      "badge": "Best Value",
+      "enabled": true
+    },
+    {
+      "key": "plan_6m",
+      "plan_type": "6_months",
+      "name": "6 Months",
+      "label": "6 Months",
+      "days": 180,
+      "amount": 450,
+      "price_str": "₹ 450",
+      "badge": "Mega Saver",
+      "enabled": true
+    }
+  ],
+  "upi_id": "paytmqr6mexnc@ptys",
+  "upi_payee_name": "APPLE GIFT GALLERY",
+  "paytm_mid": "PKNtOC25387320837859",
+  "payment_api_url": "https://thedrunkbots-pay-check-api.onrender.com/",
+  "payment_verify_interval": 12,
+  "payment_max_minutes": 15,
+  "amount_tolerance": 2.0,
+  "payment_log_channel_id": -1003270558605,
+  "payment_log_relay_token": "8658044760:AAFj5uFfUU4EbyYtwPU7hYHWlEb7fvvfcGE",
+  "owner_contact_url": "https://t.me/ToxicXAdminRoBot",
+  "owner_tag": "ToxicXAdminRoBot",
+  "maintenance_mode": false,
+  "protect_content": false,
+  "proxy": "http://g2s:153f9e0322@lvsgk-117-235-174-54.run.pinggy-free.link:45629",
+  "proxy_expired": true,
+  "proxy_expired_notified_for": "http://g2s:153f9e0322@lvsgk-117-235-174-54.run.pinggy-free.link:45629",
+  "solver_url": "https://cf.vltcx.eu.cc",
+  "solver_api_key": null,
+  "accel_factor": 0.1,
+  "timeout": 350,
+  "stuck_seconds": 100,
+  "cache_enabled": true,
+  "cache_hours": 168.0,
+  "no_accel_hosts": [
+    "get2short.com",
+    "liteshort.com",
+    "nowshort.com",
+    "linksflys.com",
+    "vplink.in",
+    "arolinks.com",
+    "babylinks.in",
+    "alpha-links.in",
+    "urllinkshort.in",
+    "lksfy.com",
+    "softurl.in",
+    "shortwala.com",
+    "earnlinks.in",
+    "inshorturl.in",
+    "inshorturl.com"
+  ],
+  "shortener_tunnels": {
+    "vplink.in": false,
+    "arolinks.com": false,
+    "get2short.com": true,
+    "liteshort.com": false,
+    "nowshort.com": false,
+    "linksflys.com": false,
+    "babylinks.in": true,
+    "alpha-links.in": false,
+    "vipshort.in": false,
+    "softurl.in": false,
+    "urllinkshort.in": false,
+    "lksfy.com": false,
+    "urlspay.com": false,
+    "v2links.me": false,
+    "urlking.in": false,
+    "linksfire.co": false,
+    "short2url.in": false,
+    "inshorturl.in": false,
+    "shortwala.com": false,
+    "earnlinks.in": false,
+    "gplinks.co": false,
+    "exeygo.com": false,
+    "droplink.co": false,
+    "shortxlinks.com": false,
+    "odiadance.com": false,
+    "nazki-protected.vercel.app": false,
+    "mrn-officialx.vercel.app": false,
+    "speedy-links.com": false,
+    "best-links.org": false,
+    "loot-link.com": false,
+    "remso.xyz": false,
+    "linkprotect.bindaasheart.workers.dev": false,
+    "sfl.gl": false,
+    "linkvertise.com": true,
+    "short4cash.com": true,
+    "web-production-a702d.up.railway.app": false,
+    "url.shortners.workers.dev": false,
+    "vplinks.in": false,
+    "publicbotshub-verify.koyeb.app": true,
+    "avbypassbot.koyeb.app": false,
+    "pastelink.net": false,
+    "pastetoday.com": false,
+    "genlink.site": true,
+    "move2link.co": true
+  },
+  "custom_shorteners": [
+    {
+      "domain": "short4cash.com",
+      "name": "short4cash.com",
+      "desc": "Custom Shortener"
+    },
+    {
+      "domain": "genlink.site",
+      "name": "genlink.site",
+      "desc": "Custom Shortener"
+    },
+    {
+      "domain": "move2link.co",
+      "name": "move2link.co",
+      "desc": "Custom Shortener"
+    }
+  ],
+  "active_tunnel_device_id": "android-sm-m307f-9157be",
+  "public_server_url": "https://g2s.up.railway.app"
+}
