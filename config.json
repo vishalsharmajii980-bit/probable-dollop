@@ -22,7 +22,7 @@
   ],
   "maintenance_mode": false,
   "protect_content": false,
-  "solver_url": "https://cf.vltcx.eu.cc",
+  "solver_url": "https://turnstile-solver-fixed-production-f950.up.railway.app",
   "solver_api_key": null,
   "browser_channel": null,
   "headless": false,
