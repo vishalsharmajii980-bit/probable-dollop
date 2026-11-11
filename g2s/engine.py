@@ -93,6 +93,14 @@ class Config:
         "nuzar.online", "mtc2.nuzar.online", "kannursalafi.com",
         "lockr.net", "lockr.so", "lockr.to", "directlinker.com",
         "publicbotshub-verify.koyeb.app", "avbypassbot.koyeb.app", "koyeb.app", "herokuapp.com",
+        # gplinks: server checks real step timers — acceleration causes not_enough_steps
+        "gplinks.co", "gplinks.in", "gplinks.com", "gplinks.org", "skrresults.com",
+        # shrinkme family + blogs
+        "shrinkme.click", "shrinkme.io", "shrinkme.site", "shrinke.me", "en.shrinke.me",
+        "srnky.com", "shrinkearn.com", "mrproblogger.com", "en.mrproblogger.com",
+        "themezon.net", "aizernal.xyz",
+        # droplink blog
+        "droplink.co", "game5s.com",
     ])
     timeout: int = 300
     stuck_seconds: int = 100                   # give up if one page doesn't progress
@@ -4005,6 +4013,14 @@ class Bypasser:
                         )
                         if st1 == 404 or "not found" in b1.lower()[:600]:
                             raise BypassError("Shortener link not found (404 on gplinks.co)")
+                        # Datacenter IP often gets CF 403 — fail fast so browser path runs with real-time timers
+                        if st1 == 403 and (
+                            "cloudflare" in b1.lower()[:800]
+                            or "cf-ray" in b1.lower()[:800]
+                            or "attention required" in b1.lower()[:800]
+                        ):
+                            job.log("GPLinks CF challenge on direct path — browser fallback (real-time timers)")
+                            return False
                         st2, h2, _ = await _req_retry(
                             s,
                             "GET",
@@ -4034,6 +4050,7 @@ class Bypasser:
                     await asyncio.sleep(2.5)
 
                 if not (pid and vid):
+                    job.log("GPLinks handshake missing pid/vid — browser fallback")
                     return False
 
                 t_handshake = time.monotonic()
@@ -5540,8 +5557,8 @@ class Bypasser:
         import aiohttp
 
         base_headers, preferred_px, _fake_ip = self._fresh_request_identity(job, log_label=host or "shrinkme")
-        # 1. For ShrinkMe family, first try direct CakePHP mirror (en.mrproblogger.com/{alias} with Referer: https://themezon.net/)
-        if any(sh in host for sh in ("shrinkme.", "shrinke.me", "mrproblogger.com", "srnky.com", "shrinkearn.com")) and "/" not in alias:
+        # 1. For ShrinkMe family (not srnky — mirror is CF-blocked), try CakePHP mirror first
+        if any(sh in host for sh in ("shrinkme.", "shrinke.me", "mrproblogger.com", "shrinkearn.com")) and "srnky." not in host and "/" not in alias:
             px_cands: list[str | None] = []
             if preferred_px:
                 px_cands.append(preferred_px)
@@ -8630,6 +8647,10 @@ class Bypasser:
         job = Job(url, log, loop)
         if getattr(job, "koyeb_verify_chain", False):
             no_accel = True
+        # GPLinks server-validates step timers — never accelerate (causes not_enough_steps)
+        if job.base in ("gplinks.co", "gplinks.in", "gplinks.com", "gplinks.org"):
+            no_accel = True
+            job.log("⏱ GPLinks: forcing real-time timers (no acceleration)")
         page = await self._new_page_safe()
         job.owned_pages = {page}
         self.current_page = page
