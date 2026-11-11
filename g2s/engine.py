@@ -1090,6 +1090,59 @@ class Bypasser:
         self._pool_lock = asyncio.Lock() if not _is_worker else None
         self._workers: list["Bypasser"] = [self] if not _is_worker else []
 
+
+    def _fresh_request_identity(self, job=None, log_label: str = "") -> tuple[dict, str | None, str]:
+        """Fresh Indian-looking IP headers + optional rotated tunnel proxy for every link visit.
+        Same isolation pattern used by get2short / arolinks / vplink so sequential & loop
+        jobs never reuse the same session fingerprint.
+        Returns (headers, proxy_url_or_None, fake_ip).
+        """
+        import random
+        fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        ua_pool = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        ]
+        ua = random.choice(ua_pool)
+        headers = {
+            "User-Agent": ua,
+            "Accept-Language": "en-US,en;q=0.9",
+            "CF-Connecting-IP": fake_ip,
+            "X-Forwarded-For": fake_ip,
+            "X-Real-IP": fake_ip,
+            "CF-IPCountry": "IN",
+        }
+        tunnel_px = None
+        try:
+            px_pool = list(self._get_active_tunnel_proxies() or [])
+            random.shuffle(px_pool)
+            for cand in px_pool:
+                c = (cand or "").strip()
+                if c and not self._is_proxy_expired(c):
+                    tunnel_px = c
+                    break
+            if not tunnel_px:
+                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
+                if cfg_px and not self._is_proxy_expired(cfg_px):
+                    tunnel_px = cfg_px
+        except Exception:
+            tunnel_px = None
+        label = log_label or (getattr(job, "base", None) if job is not None else "") or "shortener"
+        if job is not None:
+            try:
+                if tunnel_px:
+                    from urllib.parse import urlparse as _up
+                    _pu = _up(tunnel_px)
+                    _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
+                    job.log(f"🔄 Fresh proxy for this {label} link → {_shown}")
+                else:
+                    job.log(f"🔄 Fresh session IP headers for this {label} link (no tunnel proxy online)")
+            except Exception:
+                pass
+        return headers, tunnel_px, fake_ip
+
     def _get_active_tunnel_proxies(self) -> list[str]:
         """Return all active online WS/HTTP residential tunnel proxy URLs regardless of per-domain toggle."""
         import sys
@@ -3579,23 +3632,23 @@ class Bypasser:
         return False
 
     async def _try_fast_adlinkfly_direct(self, job: Job) -> bool:
-        """Direct lock-free aiohttp bypass for linksflys.com, linksfire.co, urllinkshort.in, earnlinks.in, v2links.me, urlspay.com."""
+        """Direct lock-free aiohttp bypass for linksflys.com, linksfire.co, urllinkshort.in,
+        earnlinks.in, v2links.me, urlspay.com, droplink.co — fresh IP/proxy every visit."""
         import html as _html
         import secrets
         from urllib.parse import parse_qs, unquote
         import aiohttp
 
-        ua = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        )
         for _att in range(2):
+            # Fresh identity every attempt so concurrent/loop jobs never share IP fingerprint
+            base_headers, tunnel_px, _fake_ip = self._fresh_request_identity(job, log_label=job.base)
             jar = aiohttp.CookieJar(unsafe=True)
             try:
                 async with aiohttp.ClientSession(
                     cookie_jar=jar,
-                    headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
+                    headers=base_headers,
                     timeout=aiohttp.ClientTimeout(total=35, connect=12),
+                    **({"proxy": tunnel_px} if tunnel_px else {}),
                 ) as s:
                     if _att == 0:
                         job.log(f"Opening {job.start_url}")
@@ -3909,7 +3962,8 @@ class Bypasser:
         return False
 
     async def _try_gplinks_direct(self, job: Job) -> bool:
-        """Direct aiohttp bypass for gplinks.co / gplinks.in / gplinks.com / gplinks.org (~95s, parallelizable)."""
+        """Direct aiohttp bypass for gplinks.co / gplinks.in / gplinks.com / gplinks.org
+        (~95s, parallelizable) — fresh IP/proxy every visit."""
         alias = urlparse(job.start_url).path.strip("/")
         if not alias or "/" in alias or alias.lower() in ("links", "auth", "admin", "member", "pages", "api", "link-error"):
             return False
@@ -3918,10 +3972,7 @@ class Bypasser:
         import aiohttp
 
         global _GPLINKS_LAST_FINAL
-        ua = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        )
+        base_headers, tunnel_px, _fake_ip = self._fresh_request_identity(job, log_label="gplinks.co")
         jar = aiohttp.CookieJar(unsafe=True)
 
         async def _req_retry(s: aiohttp.ClientSession, method: str, url: str, retries: int = 6, **kwargs):
@@ -3939,8 +3990,9 @@ class Bypasser:
         try:
             async with aiohttp.ClientSession(
                 cookie_jar=jar,
-                headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
+                headers=base_headers,
                 timeout=aiohttp.ClientTimeout(total=190, connect=12),
+                **({"proxy": tunnel_px} if tunnel_px else {}),
             ) as s:
                 job.log(f"Opening https://gplinks.co/{alias}")
                 lid = pid = vid = ""
@@ -5475,7 +5527,8 @@ class Bypasser:
 
     async def _try_shrinkme_direct(self, job: Job, url_override: str | None = None) -> bool:
         """Direct HTTP + aizernal.xyz resolver for shrinkme.click / shrinkme.io / shrinkme.site /
-        en.shrinke.me / srnky.com / shrinkearn.com / ouo.io / ouo.press (~6-24s)."""
+        en.shrinke.me / srnky.com / shrinkearn.com / ouo.io / ouo.press (~6-24s).
+        Fresh IP headers + rotated tunnel proxy on every visit."""
         target_u = normalize_input_url(url_override or job.start_url or "").strip()
         p = urlparse(target_u)
         host = (p.hostname or "").lower()
@@ -5483,23 +5536,29 @@ class Bypasser:
         if not alias:
             return False
         import html as _html
+        import random
         import aiohttp
 
-        ua = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        )
+        base_headers, preferred_px, _fake_ip = self._fresh_request_identity(job, log_label=host or "shrinkme")
         # 1. For ShrinkMe family, first try direct CakePHP mirror (en.mrproblogger.com/{alias} with Referer: https://themezon.net/)
-        if any(sh in host for sh in ("shrinkme.", "shrinke.me", "mrproblogger.com")) and "/" not in alias:
-            px_cands: list[str | None] = [None]
+        if any(sh in host for sh in ("shrinkme.", "shrinke.me", "mrproblogger.com", "srnky.com", "shrinkearn.com")) and "/" not in alias:
+            px_cands: list[str | None] = []
+            if preferred_px:
+                px_cands.append(preferred_px)
             for t_px in self._get_active_tunnel_proxies():
                 if t_px and t_px not in px_cands:
                     px_cands.append(t_px)
-            for active_px in px_cands[:2]:
+            px_cands.append(None)  # direct fallback
+            random.shuffle(px_cands)
+            # keep preferred first if present
+            if preferred_px and preferred_px in px_cands:
+                px_cands.remove(preferred_px)
+                px_cands.insert(0, preferred_px)
+            for active_px in px_cands[:3]:
                 try:
                     jar = aiohttp.CookieJar(unsafe=True)
                     async with aiohttp.ClientSession(
-                        headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
+                        headers=base_headers,
                         cookie_jar=jar,
                         timeout=aiohttp.ClientTimeout(total=30, connect=8),
                     ) as s:
@@ -5555,14 +5614,17 @@ class Bypasser:
                 )
             if not tok:
                 return False
+            # Refresh identity again for resolver hop (different egress than shortener hop)
+            aiz_headers, aiz_px, _ = self._fresh_request_identity(job, log_label=f"{host}/resolver")
+            aiz_headers.update({
+                "Origin": "https://aizernal.xyz",
+                "Referer": "https://aizernal.xyz/",
+                "Content-Type": "application/json",
+            })
             async with aiohttp.ClientSession(
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
-                    "Origin": "https://aizernal.xyz",
-                    "Referer": "https://aizernal.xyz/",
-                    "Content-Type": "application/json",
-                },
+                headers=aiz_headers,
                 timeout=aiohttp.ClientTimeout(total=65, connect=10),
+                **({"proxy": aiz_px} if aiz_px else {}),
             ) as s:
                 async with s.post(
                     "https://aizernal.xyz/api/resolve",

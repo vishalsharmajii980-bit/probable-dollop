@@ -253,14 +253,18 @@ async def resolve_link_core(
             else:
                 log_fn("⚡ Shortener tunnel disabled — solving via direct connection")
                 fallback_candidates = await db.get_tunnel_candidates_for_url(key, ignore_shortener_toggle=True)
-            # arolinks / vplink: rotate proxy order on EVERY link so concurrent/loop jobs
-            # never stick to the same tunnel device (matches get2short/babylinks isolation)
+            # Rotate proxy order on EVERY link for domains that need session isolation
             _kl = (key or "").lower()
-            if "arolinks." in _kl or "vplink." in _kl:
+            _rotate_hosts = (
+                "arolinks.", "vplink.", "v2links.", "urlspay.", "droplink.",
+                "gplinks.", "shrinkme.", "srnky.", "shrinkearn.", "shrinke.me",
+                "get2short.", "babylinks.",
+            )
+            if any(h in _kl for h in _rotate_hosts):
                 import random as _rnd
                 if len(candidates) > 1:
                     _rnd.shuffle(candidates)
-                    log_fn(f"🔄 Rotated {len(candidates)} tunnel proxies for this arolinks/vplink job")
+                    log_fn(f"🔄 Rotated {len(candidates)} tunnel proxies for this shortener job")
                 if len(fallback_candidates) > 1:
                     _rnd.shuffle(fallback_candidates)
             return candidates, fallback_candidates

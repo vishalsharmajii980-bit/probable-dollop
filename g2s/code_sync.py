@@ -146,16 +146,27 @@ class CodeSyncManager:
                                 "_cmd_loop_setup",
                                 "/loop_setup",
                                 "Loop Setup",
+                                "loop:conc:",
+                                "_finish_loop_setup",
+                                "concurrency",
                             ),
                             "g2s/engine.py": (
                                 "browser_handoff_url",
                                 "_try_shortners_workers_direct",
+                                "_fresh_request_identity",
+                                "VPLink turnstile bind",
+                                "Fresh proxy for this",
                             ),
                             "g2s/code_sync.py": (
                                 "prefer_deploy",
                                 "G2S_PREFER_DEPLOY",
                                 "deploy_prefer",
                                 "FEATURE_MARKERS",
+                            ),
+                            "server.py": (
+                                "Rotated",
+                                "_rotate_hosts",
+                                "v2links.",
                             ),
                         }
                         markers = _FEATURE_MARKERS.get(rel_path) or ()
