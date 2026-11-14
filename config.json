@@ -2,22 +2,22 @@
   "brand_name": "TheDrunkBots",
   "admin_password": "admin123",
   "mongo_uri": "mongodb+srv://elevatexoiii_db_user:JrK2ILYhp1gzuovK@boldix.qtvcnny.mongodb.net",
-  "telegram_bot_token": "8812534393:AAHw-kiTkWGNlBh8awm0PY3a6ZcUoFp-_R8",
+  "telegram_bot_token": "8603137112:AAEb8xwJEDsP6o2C9Xvp2EUTJt5g1Q0LirQ",
   "telegram_api_id": 25396020,
   "telegram_api_hash": "228ea638bed51dd4ae3cc9e4e51e198c",
-  "owner_id": 8584220782,
+  "owner_id": 807237792,
   "admin_ids": [
-    8584220782
+    807237792
   ],
   "start_photo": "https://i.ibb.co/1Nx1jMn/IMG-20261005-021725.png",
-  "updates_channel": "https://t.me/TheDrunkBots",
-  "force_sub_enabled": true,
+  "updates_channel": "",
+  "force_sub_enabled": false,
   "force_sub_channels": [
     {
-      "chat_id": "-1003768452343",
-      "title": "TheDrunkBots Official",
-      "invite_link": "https://t.me/+e2xem-7b7-c3ZTM1",
-      "api_chat_id": "-1004462643599"
+      "chat_id": "",
+      "title": "",
+      "invite_link": "",
+      "api_chat_id": ""
     }
   ],
   "maintenance_mode": false,
