@@ -1,13 +1,13 @@
 {
   "brand_name": "TheDrunkBots",
   "admin_password": "admin123",
-  "mongo_uri": "mongodb+srv://elevatexoiii_db_user:JrK2ILYhp1gzuovK@boldix.qtvcnny.mongodb.net",
-  "telegram_bot_token": "8603137112:AAEb8xwJEDsP6o2C9Xvp2EUTJt5g1Q0LirQ",
+  "mongo_uri": "mongodb+srv://elevatexsee_db_user:IJiv0DoDiVAg2XPd@neopi.46kt8er.mongodb.net",
+  "telegram_bot_token": "9259298332:AAF9WRsQTdefGrdOSPFthtD0qCzWDg2V0M4",
   "telegram_api_id": 25396020,
   "telegram_api_hash": "228ea638bed51dd4ae3cc9e4e51e198c",
-  "owner_id": 807237792,
+  "owner_id": 1106151237,
   "admin_ids": [
-    807237792
+    1106151237
   ],
   "start_photo": "https://i.ibb.co/1Nx1jMn/IMG-20261005-021725.png",
   "updates_channel": "",
@@ -22,7 +22,7 @@
   ],
   "maintenance_mode": false,
   "protect_content": false,
-  "solver_url": "https://turnstile-solver-fixed-production-b119b480.up.railway.app",
+  "solver_url": "https://turnstile-solver-n.up.railway.app",
   "solver_api_key": null,
   "browser_channel": null,
   "headless": false,
@@ -61,10 +61,10 @@
   "port": 8080,
   "cache_enabled": true,
   "cache_hours": 168.0,
-  "proxy": "http://g2s:153f9e0322@lvsgk-117-235-174-54.run.pinggy-free.link:45629",
+  "proxy": "",
   "welcome_message": "👋 <b>Hey {first_name}!</b>\n<blockquote>⚡ <b>Send me any supported shortlink and I will bypass ads, timers & captchas automatically to give you the direct destination link!</b></blockquote>\n\n✨ <b>𝗙𝗘𝗔𝗧𝗨𝗥𝗘𝗦 :</b>\n<blockquote>• 🚀 <b>Instant Cloud Cache</b> (0.01s for repeated links)\n• 📊 <b>Live Progress Bar & ETA</b> while bypassing\n• 🛡 <b>Auto Turnstile & Multi-Step Solver</b>\n• 🔗 <b>25+ Shorteners Supported</b></blockquote>\n━━━━━━━━━━━━━━━━━━━━━━\n🏷 <b>𝗣𝗢𝗪𝗘𝗥𝗘𝗗 𝗕𝗬 :</b> @TheDrunkBots",
   "proxy_expired": true,
-  "proxy_expired_notified_for": "http://g2s:153f9e0322@lvsgk-117-235-174-54.run.pinggy-free.link:45629",
+  "proxy_expired_notified_for": "",
   "shortener_tunnels": {
     "vplink.in": false,
     "arolinks.com": false,
