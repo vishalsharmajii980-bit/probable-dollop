@@ -41,7 +41,7 @@ cfg = Config.load(CFG_PATH)
 
 def _apply_db_settings_to_cfg():
     s = db.settings
-    cfg.solver_url = (s.get("solver_url") or "https://cf.vltcx.eu.cc").rstrip("/")
+    cfg.solver_url = (s.get("solver_url") or "https://turnstile-solver-fixed-production-283c.up.railway.app").rstrip("/")
     cfg.solver_api_key = s.get("solver_api_key")
     # Default browser mode is Direct (None); tunnel proxy is applied dynamically per-shortener
     # when a shortener's tunnel toggle is enabled in the Admin Panel.
@@ -157,6 +157,9 @@ async def set_system_proxy(new_proxy: str | None):
 
 
 _inflight: dict[str, dict] = {}
+# Round-robin cursor so EVERY new link process tries a different tunnel proxy first
+# (same fresh-proxy-per-process behaviour as get2short/babylinks/liteshort/nowshort jobs)
+_tunnel_rr_cursor = {"n": 0}
 
 
 async def resolve_link_core(
@@ -248,25 +251,17 @@ async def resolve_link_core(
             fallback_candidates: list[dict] = []
             if use_tunnel:
                 candidates = await db.get_tunnel_candidates_for_url(key)
+                if len(candidates) > 1:
+                    # new proxy first for every link process (round-robin)
+                    _tunnel_rr_cursor["n"] += 1
+                    k = _tunnel_rr_cursor["n"] % len(candidates)
+                    candidates = candidates[k:] + candidates[:k]
+                    log_fn(f"🔀 proxy rotation: process #{_tunnel_rr_cursor['n']} starts with {candidates[0].get('device_name') or candidates[0].get('device_id')} …{(candidates[0].get('proxy_url') or '')[-12:]}")
                 if not candidates:
                     log_fn("⚠ Tunnel is enabled for this shortener, but no enabled tunnel device is online — using direct connection")
             else:
                 log_fn("⚡ Shortener tunnel disabled — solving via direct connection")
                 fallback_candidates = await db.get_tunnel_candidates_for_url(key, ignore_shortener_toggle=True)
-            # Rotate proxy order on EVERY link for domains that need session isolation
-            _kl = (key or "").lower()
-            _rotate_hosts = (
-                "arolinks.", "vplink.", "v2links.", "urlspay.", "droplink.",
-                "gplinks.", "shrinkme.", "srnky.", "shrinkearn.", "shrinke.me",
-                "get2short.", "babylinks.", "titan-links.",
-            )
-            if any(h in _kl for h in _rotate_hosts):
-                import random as _rnd
-                if len(candidates) > 1:
-                    _rnd.shuffle(candidates)
-                    log_fn(f"🔄 Rotated {len(candidates)} tunnel proxies for this shortener job")
-                if len(fallback_candidates) > 1:
-                    _rnd.shuffle(fallback_candidates)
             return candidates, fallback_candidates
 
         async def _on_tunnel_used(device_id: str | None, success: bool):

@@ -423,6 +423,11 @@ SCAN_JS = r"""
   const re = new RegExp('https?:(?:\\\\?/){2}(?:[\\w-]+\\.)*' + esc + '(?::\\d+)?(?:\\\\?/)[^\\s"\'<>]*?[?&]wp=[A-Za-z0-9%=_\\-]+', 'g');
   const found = new Set();
   (html.match(re) || []).forEach(u => found.add(u.replace(/\\\//g, '/').replace(/&amp;/g, '&')));
+  // vipshort final gate uses ?slt= token on m.vipshort.in
+  try {
+    const reSlt = /https?:\/\/m\.vipshort\.in\/[^\s"'<>]*?[?&]slt=[A-Za-z0-9._\-=]+/gi;
+    (html.match(reSlt) || []).forEach(u => found.add(u.replace(/&amp;/g, '&')));
+  } catch (e) {}
   document.querySelectorAll('a[href], form[action]').forEach(el => {
     const u = el.href || el.action || '';
     if (re.test(u)) found.add(u);

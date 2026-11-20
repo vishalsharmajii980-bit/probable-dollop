@@ -24,6 +24,7 @@ class WsDeviceSession:
         self.manager = manager
         self.bridge_port: int = 0
         self.server: asyncio.AbstractServer | None = None
+        self._owns_server = True  # manager-owned bridges set this False
         self.streams: dict[int, asyncio.StreamWriter] = {}
         self.open_Waiters: dict[int, asyncio.Future] = {}
         self._next_sid = 1
@@ -40,13 +41,11 @@ class WsDeviceSession:
         return None
 
     async def start_local_proxy(self) -> int:
-        self.server = await asyncio.start_server(
-            lambda r, w: self._handle_local_client(r, w),
-            host="127.0.0.1",
-            port=self.bridge_port or 0,
-        )
-        socks = self.server.sockets or []
-        self.bridge_port = socks[0].getsockname()[1] if socks else 0
+        # Bridge TCP server is MANAGER-owned and its port stays STABLE across websocket
+        # reconnects — clients keep one working proxy_url even when the WS flaps.
+        self.server = None
+        self._owns_server = False
+        self.bridge_port = await self.manager.ensure_bridge(self.device_id, self.bridge_port or 0)
         return self.bridge_port
 
     async def rebind_local_proxy(self) -> int:
@@ -274,7 +273,7 @@ class WsDeviceSession:
             except Exception:
                 pass
         self.streams.clear()
-        if self.server:
+        if self._owns_server and self.server:
             try:
                 self.server.close()
                 await self.server.wait_closed()
@@ -292,12 +291,87 @@ class WsTunnelManager:
     def __init__(self, db: Any):
         self.db = db
         self.sessions: dict[str, WsDeviceSession] = {}
+        # Stable per-device bridge servers: the local proxy port survives WS reconnects
+        self.bridges: dict[str, asyncio.AbstractServer] = {}
+        self.bridge_ports: dict[str, int] = {}
+        self._bridge_last_seen: dict[str, float] = {}
+        self._reaper_task: asyncio.Task | None = None
 
     def get_session(self, device_id: str) -> WsDeviceSession | None:
         sess = self.sessions.get(device_id)
         if sess and not sess.closed and not sess.ws.closed:
             return sess
         return None
+
+    async def ensure_bridge(self, device_id: str, prefer_port: int = 0) -> int:
+        """Bind (or reuse) the STABLE local proxy bridge for a device. The bridge server
+        dispatches each accepted connection to the currently live session and waits out
+        short WS flaps, so http://127.0.0.1:<port> never dies mid-solve."""
+        srv = self.bridges.get(device_id)
+        if srv is not None and not srv.is_serving():
+            try:
+                srv.close()
+            except Exception:
+                pass
+            self.bridges.pop(device_id, None)
+            srv = None
+        if srv is None:
+            port = prefer_port or self.bridge_ports.get(device_id) or 0
+            mk = lambda r, w, _d=device_id: asyncio.ensure_future(
+                self._handle_bridge_client(_d, r, w)
+            )
+            try:
+                srv = await asyncio.start_server(mk, host="127.0.0.1", port=port)
+            except OSError:
+                srv = await asyncio.start_server(mk, host="127.0.0.1", port=0)
+            self.bridges[device_id] = srv
+            if self._reaper_task is None:
+                try:
+                    self._reaper_task = asyncio.ensure_future(self._bridge_reaper())
+                except Exception:
+                    pass
+        socks = srv.sockets or []
+        p = socks[0].getsockname()[1] if socks else 0
+        if p:
+            self.bridge_ports[device_id] = p
+        return p
+
+    async def _handle_bridge_client(self, device_id: str, reader, writer):
+        # wait out short websocket flaps (device re-hello) instead of instantly failing
+        for _ in range(40):  # up to ~20s
+            sess = self.get_session(device_id)
+            if sess is not None:
+                try:
+                    await sess._handle_local_client(reader, writer)
+                except Exception:
+                    pass
+                return
+            await asyncio.sleep(0.5)
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+    async def _bridge_reaper(self):
+        # close bridge servers of devices that never came back (after 15 min)
+        while True:
+            try:
+                await asyncio.sleep(60)
+                now = time.time()
+                for did, srv in list(self.bridges.items()):
+                    if self.get_session(did) is None:
+                        last = self._bridge_last_seen.get(did, now)
+                        if now - last > 900:
+                            try:
+                                srv.close()
+                            except Exception:
+                                pass
+                            self.bridges.pop(did, None)
+                            self.bridge_ports.pop(did, None)
+                    else:
+                        self._bridge_last_seen[did] = now
+            except Exception:
+                pass
 
     async def handle_ws(self, req: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=25.0, max_msg_size=16 * 1024 * 1024)

@@ -1,28 +1,28 @@
 {
   "brand_name": "TheDrunkBots",
   "admin_password": "admin123",
-  "mongo_uri": "mongodb+srv://elevatexsee_db_user:IJiv0DoDiVAg2XPd@neopi.46kt8er.mongodb.net",
-  "telegram_bot_token": "9259298332:AAF9WRsQTdefGrdOSPFthtD0qCzWDg2V0M4",
+  "mongo_uri": "mongodb+srv://elevatexseee_db_user:bvwqWEMIRFMty12F@demon.wmqhti7.mongodb.net",
+  "telegram_bot_token": "8958607022:AAGsnEQZHGWpMKafbitsX45H0X0FxPuYOtc",
   "telegram_api_id": 25396020,
   "telegram_api_hash": "228ea638bed51dd4ae3cc9e4e51e198c",
-  "owner_id": 1106151237,
+  "owner_id": 8584220782,
   "admin_ids": [
-    1106151237
+    8584220782
   ],
   "start_photo": "https://i.ibb.co/1Nx1jMn/IMG-20261005-021725.png",
-  "updates_channel": "",
-  "force_sub_enabled": false,
+  "updates_channel": "https://t.me/TheDrunkBots",
+  "force_sub_enabled": true,
   "force_sub_channels": [
     {
-      "chat_id": "",
-      "title": "",
-      "invite_link": "",
-      "api_chat_id": ""
+      "chat_id": "-1003768452343",
+      "title": "TheDrunkBots Official",
+      "invite_link": "https://t.me/+e2xem-7b7-c3ZTM1",
+      "api_chat_id": "-1004462643599"
     }
   ],
   "maintenance_mode": false,
   "protect_content": false,
-  "solver_url": "https://turnstile-solver-n.up.railway.app",
+  "solver_url": "https://turnstile-solver-fixed-production.up.railway.app",
   "solver_api_key": null,
   "browser_channel": null,
   "headless": false,
@@ -61,10 +61,10 @@
   "port": 8080,
   "cache_enabled": true,
   "cache_hours": 168.0,
-  "proxy": "",
+  "proxy": "http://g2s:153f9e0322@lvsgk-117-235-174-54.run.pinggy-free.link:45629",
   "welcome_message": "👋 <b>Hey {first_name}!</b>\n<blockquote>⚡ <b>Send me any supported shortlink and I will bypass ads, timers & captchas automatically to give you the direct destination link!</b></blockquote>\n\n✨ <b>𝗙𝗘𝗔𝗧𝗨𝗥𝗘𝗦 :</b>\n<blockquote>• 🚀 <b>Instant Cloud Cache</b> (0.01s for repeated links)\n• 📊 <b>Live Progress Bar & ETA</b> while bypassing\n• 🛡 <b>Auto Turnstile & Multi-Step Solver</b>\n• 🔗 <b>25+ Shorteners Supported</b></blockquote>\n━━━━━━━━━━━━━━━━━━━━━━\n🏷 <b>𝗣𝗢𝗪𝗘𝗥𝗘𝗗 𝗕𝗬 :</b> @TheDrunkBots",
   "proxy_expired": true,
-  "proxy_expired_notified_for": "",
+  "proxy_expired_notified_for": "http://g2s:153f9e0322@lvsgk-117-235-174-54.run.pinggy-free.link:45629",
   "shortener_tunnels": {
     "vplink.in": false,
     "arolinks.com": false,

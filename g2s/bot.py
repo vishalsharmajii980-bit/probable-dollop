@@ -15,7 +15,6 @@ import asyncio
 import contextlib
 import html
 import json
-import random
 import re
 import time
 from typing import Any
@@ -242,12 +241,6 @@ class TelegramBot:
         self._fsub_pending_urls: dict[int, list[str]] = {}
         # Tracks interactive admin input state: {user_id: {"action": "...", ...}}
         self._admin_states: dict[int, dict[str, Any]] = {}
-        # Interactive loop-setup state for premium users: {user_id: {"step": "links"|"times", ...}}
-        self._user_states: dict[int, dict[str, Any]] = {}
-        # Per-user loop mode config & runtime: config = links/times; runtime task + stop flag
-        self._loop_configs: dict[int, dict[str, Any]] = {}
-        self._loop_tasks: dict[int, asyncio.Task] = {}
-        self._loop_stop_flags: dict[int, bool] = {}
         self._last_tunnel_alert_at: float = 0.0
         self._alerted_expired_proxy: str | None = None
         # Tracks active/queued bypass jobs for accurate queue-aware ETA: {job_uid: [start_mono, est_sec]}
@@ -471,29 +464,8 @@ class TelegramBot:
             {"command": "bypass", "description": "⚡ Bypass a shortlink"},
             {"command": "myinfo", "description": "👤 View your stats & profile"},
             {"command": "status", "description": "📊 Check bot & cloud cache status"},
-            {"command": "loop", "description": "🔁 Open Loop Mode setup panel (Premium)"},
-            {"command": "loop_setup", "description": "🔁 Setup Loop Mode (Premium) — continuous multi-link processing"},
-            {"command": "loop_start", "description": "▶️ Start Loop Mode (Premium)"},
-            {"command": "loop_stop", "description": "⏹ Stop running Loop Mode"},
-            {"command": "loop_status", "description": "📊 Check Loop Mode status"},
         ]
-        # Register globally so every user sees the full command list (including loop_*)
-        res = await self.api("setMyCommands", {"commands": user_cmds})
-        if res and res.get("ok"):
-            print(f"✔ Bot commands registered ({len(user_cmds)} cmds, incl. loop/loop_setup/start/stop/status)", flush=True)
-        else:
-            print(f"⚠ setMyCommands failed: {(res or {}).get('description')}", flush=True)
-            # Retry once after short delay (Telegram sometimes flakes on boot)
-            await asyncio.sleep(2.0)
-            res2 = await self.api("setMyCommands", {"commands": user_cmds})
-            if res2 and res2.get("ok"):
-                print("✔ Bot commands registered on retry", flush=True)
-            else:
-                print(f"⚠ setMyCommands retry failed: {(res2 or {}).get('description')}", flush=True)
-        # Also clear any chat-specific overrides so the global list is what users see
-        with contextlib.suppress(Exception):
-            await self.api("deleteMyCommands", {"scope": {"type": "all_private_chats"}})
-            await self.api("setMyCommands", {"commands": user_cmds, "scope": {"type": "all_private_chats"}})
+        await self.api("setMyCommands", {"commands": user_cmds})
 
     async def send_message(
         self,
@@ -1133,26 +1105,16 @@ class TelegramBot:
             await self._handle_admin_state_input(chat_id, user_id, msg_id, text)
             return
 
-        # Handle interactive loop-setup state for premium users
-        if user_id in self._user_states and not text.startswith("/"):
-            await self._handle_loop_state_input(chat_id, user_id, from_user, msg_id, text)
-            return
-
         # Commands
         if text.startswith("/"):
             parts = text.split(maxsplit=1)
             cmd = parts[0].split("@")[0].lower()
             arg = parts[1].strip() if len(parts) > 1 else ""
 
-            if cmd == "/cancel":
-                if is_adm and user_id in self._admin_states:
-                    self._admin_states.pop(user_id, None)
-                    await self.send_message(chat_id, "✅ <b>Cancelled current action.</b>", reply_to=msg_id)
-                    return
-                if user_id in self._user_states:
-                    self._user_states.pop(user_id, None)
-                    await self.send_message(chat_id, "✅ <b>Loop setup cancelled.</b>", reply_to=msg_id)
-                    return
+            if cmd == "/cancel" and is_adm:
+                self._admin_states.pop(user_id, None)
+                await self.send_message(chat_id, "✅ <b>Cancelled current action.</b>", reply_to=msg_id)
+                return
 
             # Force-sub check for non-admin users on all user commands
             if not is_adm:
@@ -1181,50 +1143,6 @@ class TelegramBot:
                 return
             if cmd == "/myinfo":
                 await self._cmd_myinfo(chat_id, user_doc, msg_id)
-                return
-            if cmd in ("/loop_setup", "/loopsetup", "/setup_loop", "/loop"):
-                try:
-                    await self._cmd_loop_setup(chat_id, user_id, from_user, msg_id)
-                except Exception as e:
-                    print(f"loop_setup error uid={user_id}: {e}", flush=True)
-                    await self.send_message(
-                        chat_id,
-                        f"⚠ Loop setup error: <code>{html.escape(str(e)[:180])}</code>",
-                        reply_to=msg_id,
-                    )
-                return
-            if cmd in ("/loop_start", "/loopstart", "/start_loop"):
-                try:
-                    await self._cmd_loop_start(chat_id, user_id, from_user, msg_id)
-                except Exception as e:
-                    print(f"loop_start error uid={user_id}: {e}", flush=True)
-                    await self.send_message(
-                        chat_id,
-                        f"⚠ Loop start error: <code>{html.escape(str(e)[:180])}</code>",
-                        reply_to=msg_id,
-                    )
-                return
-            if cmd in ("/loop_stop", "/loopstop", "/stop_loop"):
-                try:
-                    await self._cmd_loop_stop(chat_id, user_id, msg_id)
-                except Exception as e:
-                    print(f"loop_stop error uid={user_id}: {e}", flush=True)
-                    await self.send_message(
-                        chat_id,
-                        f"⚠ Loop stop error: <code>{html.escape(str(e)[:180])}</code>",
-                        reply_to=msg_id,
-                    )
-                return
-            if cmd in ("/loop_status", "/loopstatus", "/status_loop"):
-                try:
-                    await self._cmd_loop_status(chat_id, user_id, msg_id)
-                except Exception as e:
-                    print(f"loop_status error uid={user_id}: {e}", flush=True)
-                    await self.send_message(
-                        chat_id,
-                        f"⚠ Loop status error: <code>{html.escape(str(e)[:180])}</code>",
-                        reply_to=msg_id,
-                    )
                 return
             if cmd in ("/bypass", "/b", "/dl"):
                 if not arg:
@@ -1841,14 +1759,6 @@ class TelegramBot:
                 {"text": "👑 My Plan", "callback_data": "usr:myplan"},
             ],
             [
-                {"text": "🔁 Loop Setup", "callback_data": "loop:setup", "style": "primary"},
-                {"text": "▶️ Start Loop", "callback_data": "loop:start", "style": "success"},
-            ],
-            [
-                {"text": "⏹ Stop Loop", "callback_data": "loop:stop"},
-                {"text": "📊 Loop Status", "callback_data": "loop:status"},
-            ],
-            [
                 {"text": "⚡ How To Use", "callback_data": "usr:help"},
                 {"text": "📊 Bot Stats", "callback_data": "usr:status"},
             ],
@@ -1873,9 +1783,7 @@ class TelegramBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<blockquote>1️⃣ <b>Send any shortlink</b> directly in this chat (or use <code>/bypass &lt;link&gt;</code>).\n"
             f"2️⃣ Watch the <b>live progress bar &amp; ETA</b> while our cloud browser bypasses ads, timers &amp; captchas.\n"
-            f"3️⃣ Receive your <b>direct destination link</b> with one-tap <b>COPY LINK 📋</b> &amp; <b>OPEN LINK ↗️</b> buttons!\n"
-            f"4️⃣ <b>Premium Loop Mode:</b> <code>/loop_setup</code> → set links + cycles → <code>/loop_start</code> "
-            f"(continuous no-cache processing, max 3 concurrent, 3–5s random gap)</blockquote>\n\n"
+            f"3️⃣ Receive your <b>direct destination link</b> with one-tap <b>COPY LINK 📋</b> &amp; <b>OPEN LINK ↗️</b> buttons!</blockquote>\n\n"
             f"🔗 <b>𝗦𝗨𝗣𝗣𝗢𝗥𝗧𝗘𝗗 𝗦𝗛𝗢𝗥𝗧𝗘𝗡𝗘𝗥𝗦 :</b>\n"
             f"<blockquote>• <code>gplinks.co</code> • <code>exeygo.com</code> • <code>arolinks.com</code>\n"
             f"• <code>vplink.in</code> • <code>get2short.com</code> • <code>droplink.co</code>\n"
@@ -1995,499 +1903,6 @@ class TelegramBot:
             await self.edit_message(chat_id, edit_id, txt, reply_markup=kb)
         else:
             await self.send_message(chat_id, txt, reply_to=msg_id, reply_markup=kb)
-
-    # ------------------------------------------------- Loop Mode (Premium)
-    async def _cmd_loop_setup(
-        self,
-        chat_id: int,
-        user_id: int,
-        from_user: dict,
-        msg_id: int | None = None,
-    ):
-        pstat = self.db.get_user_premium_status(user_id)
-        if not pstat.get("is_premium") and not self.db.is_admin(user_id):
-            await self.send_message(
-                chat_id,
-                "💎 <b>Loop Mode is Premium-only</b>\n"
-                "<blockquote>This feature lets you continuously process 1 or multiple links in a loop "
-                "(no cache, concurrent 1–5 of your choice, random 3–5s gap between cycles).\n\n"
-                "Upgrade to Premium to unlock /loop_setup.</blockquote>",
-                reply_to=msg_id,
-                reply_markup={
-                    "inline_keyboard": [
-                        [{"text": "💎 Buy Premium", "callback_data": "usr:premium", "style": "success"}]
-                    ]
-                },
-            )
-            return
-
-        self._user_states[user_id] = {"step": "links", "chat_id": chat_id}
-        await self.send_message(
-            chat_id,
-            "🔁 <b>Loop Mode Setup</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "<blockquote>Send <b>1 or more shortlinks</b> that you want the bot to process continuously.\n\n"
-            "• One link per line <b>or</b> space/comma separated\n"
-            "• Max 20 links recommended\n"
-            "• These will be processed <b>without cache</b> (always live bypass)\n"
-            "• You can set <b>how many links run at the same time</b> (1–5)\n"
-            "• After each full cycle → random <b>3–5 second</b> gap, then repeat</blockquote>\n\n"
-            "Send your links now (or /cancel to abort):",
-            reply_to=msg_id,
-        )
-
-    async def _handle_loop_state_input(
-        self,
-        chat_id: int,
-        user_id: int,
-        from_user: dict,
-        msg_id: int,
-        text: str,
-    ):
-        state = self._user_states.get(user_id) or {}
-        step = state.get("step")
-
-        if step == "links":
-            urls = extract_clean_urls(text) or list(dict.fromkeys(URL_RE.findall(text)))
-            urls = [u for u in urls if u][:20]
-            if not urls:
-                await self.send_message(
-                    chat_id,
-                    "❌ No valid links found. Please send at least one shortlink (http/https).\n"
-                    "Or send /cancel to abort.",
-                    reply_to=msg_id,
-                )
-                return
-            state["links"] = urls
-            state["step"] = "times"
-            self._user_states[user_id] = state
-            links_preview = "\n".join(
-                f"• <code>{html.escape(u[:80])}{'…' if len(u) > 80 else ''}</code>" for u in urls[:8]
-            )
-            if len(urls) > 8:
-                links_preview += f"\n• … and {len(urls) - 8} more"
-            await self.send_message(
-                chat_id,
-                f"✅ <b>{len(urls)} link(s) saved</b>\n"
-                f"<blockquote>{links_preview}</blockquote>\n\n"
-                "Now send the <b>number of cycles</b> (how many times to repeat the full list):\n"
-                "• Example: <code>10</code> → process the list 10 times\n"
-                "• Send <code>0</code> for unlimited (until you /loop_stop)\n\n"
-                "Or /cancel to abort.",
-                reply_to=msg_id,
-            )
-            return
-
-        if step == "times":
-            try:
-                times = int(text.strip().split()[0])
-                if times < 0:
-                    raise ValueError
-            except Exception:
-                await self.send_message(
-                    chat_id,
-                    "❌ Please send a non-negative integer (e.g. <code>5</code> or <code>0</code> for unlimited).\n"
-                    "Or /cancel to abort.",
-                    reply_to=msg_id,
-                )
-                return
-            state["times"] = times
-            state["step"] = "concurrency"
-            self._user_states[user_id] = state
-            times_label = "Unlimited (until /loop_stop)" if times == 0 else str(times)
-            await self.send_message(
-                chat_id,
-                f"✅ Cycles set: <code>{times_label}</code>\n\n"
-                "⚡ <b>How many links should run at the same time?</b>\n"
-                "<blockquote>Choose concurrency (parallel processing):\n"
-                "• <code>1</code> → one-by-one (slowest, safest)\n"
-                "• <code>2</code> → 2 together\n"
-                "• <code>3</code> → 3 together (default)\n"
-                "• <code>4</code> → 4 together\n"
-                "• <code>5</code> → 5 together (fastest)</blockquote>\n\n"
-                "Tap a button below <b>or</b> send a number <code>1</code>–<code>5</code>.\n"
-                "Or /cancel to abort.",
-                reply_to=msg_id,
-                reply_markup={
-                    "inline_keyboard": [
-                        [
-                            {"text": "1", "callback_data": "loop:conc:1"},
-                            {"text": "2", "callback_data": "loop:conc:2"},
-                            {"text": "3 ⭐", "callback_data": "loop:conc:3"},
-                            {"text": "4", "callback_data": "loop:conc:4"},
-                            {"text": "5", "callback_data": "loop:conc:5"},
-                        ]
-                    ]
-                },
-            )
-            return
-
-        if step == "concurrency":
-            try:
-                conc = int(text.strip().split()[0])
-                if conc < 1 or conc > 5:
-                    raise ValueError
-            except Exception:
-                await self.send_message(
-                    chat_id,
-                    "❌ Please send a number between <code>1</code> and <code>5</code> "
-                    "(how many links to process at once).\n"
-                    "Or /cancel to abort.",
-                    reply_to=msg_id,
-                    reply_markup={
-                        "inline_keyboard": [
-                            [
-                                {"text": "1", "callback_data": "loop:conc:1"},
-                                {"text": "2", "callback_data": "loop:conc:2"},
-                                {"text": "3 ⭐", "callback_data": "loop:conc:3"},
-                                {"text": "4", "callback_data": "loop:conc:4"},
-                                {"text": "5", "callback_data": "loop:conc:5"},
-                            ]
-                        ]
-                    },
-                )
-                return
-            await self._finish_loop_setup(chat_id, user_id, state, conc, msg_id)
-            return
-
-        self._user_states.pop(user_id, None)
-
-    async def _finish_loop_setup(
-        self,
-        chat_id: int,
-        user_id: int,
-        state: dict,
-        concurrency: int,
-        msg_id: int | None = None,
-    ):
-        links = list(state.get("links") or [])
-        times = int(state.get("times") or 0)
-        concurrency = max(1, min(int(concurrency or 3), 5))
-        self._user_states.pop(user_id, None)
-        self._loop_configs[user_id] = {
-            "links": links,
-            "times": times,
-            "concurrency": concurrency,
-            "chat_id": chat_id,
-            "set_at": time.time(),
-        }
-        times_label = "Unlimited (until /loop_stop)" if times == 0 else str(times)
-        await self.send_message(
-            chat_id,
-            f"✅ <b>Loop Mode configured!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<blockquote>🔗 <b>Links:</b> <code>{len(links)}</code>\n"
-            f"🔁 <b>Cycles:</b> <code>{times_label}</code>\n"
-            f"⚡ <b>Concurrency:</b> <code>{concurrency} simultaneous</code>\n"
-            f"🚫 <b>Cache:</b> <code>Disabled (always live)</code>\n"
-            f"⏱ <b>Gap between cycles:</b> <code>3–5s random</code></blockquote>\n\n"
-            f"Send <b>/loop_start</b> to begin continuous processing.\n"
-            f"Send <b>/loop_stop</b> anytime to halt.\n"
-            f"Send <b>/loop_status</b> to check progress.",
-            reply_to=msg_id,
-            reply_markup={
-                "inline_keyboard": [
-                    [
-                        {"text": "▶️ Start Loop", "callback_data": "loop:start", "style": "success"},
-                        {"text": "🔄 Re-setup", "callback_data": "loop:setup"},
-                    ]
-                ]
-            },
-        )
-
-    async def _cmd_loop_start(
-        self,
-        chat_id: int,
-        user_id: int,
-        from_user: dict,
-        msg_id: int | None = None,
-    ):
-        pstat = self.db.get_user_premium_status(user_id)
-        if not pstat.get("is_premium") and not self.db.is_admin(user_id):
-            await self.send_message(
-                chat_id,
-                "💎 <b>Loop Mode is Premium-only.</b> Use /premium to upgrade.",
-                reply_to=msg_id,
-            )
-            return
-
-        cfg = self._loop_configs.get(user_id)
-        if not cfg or not cfg.get("links"):
-            await self.send_message(
-                chat_id,
-                "⚠ No loop configuration found.\n"
-                "First run <b>/loop_setup</b> to set your links and cycle count.",
-                reply_to=msg_id,
-            )
-            return
-
-        existing = self._loop_tasks.get(user_id)
-        if existing and not existing.done():
-            await self.send_message(
-                chat_id,
-                "⚠ A loop is already running for you.\n"
-                "Use <b>/loop_stop</b> first, then /loop_start again.",
-                reply_to=msg_id,
-            )
-            return
-
-        self._loop_stop_flags[user_id] = False
-        task = asyncio.create_task(
-            self._run_loop_mode(chat_id, user_id, from_user, cfg)
-        )
-        self._loop_tasks[user_id] = task
-        times = cfg.get("times", 0)
-        times_label = "∞" if times == 0 else str(times)
-        conc = max(1, min(int(cfg.get("concurrency") or 3), 5))
-        await self.send_message(
-            chat_id,
-            f"▶️ <b>Loop Mode STARTED</b>\n"
-            f"<blockquote>🔗 {len(cfg['links'])} link(s) × {times_label} cycles\n"
-            f"⚡ Max {conc} concurrent • No cache • 3–5s random gap</blockquote>\n"
-            f"Results will appear here as each link finishes.\n"
-            f"Send <b>/loop_stop</b> to halt anytime.",
-            reply_to=msg_id,
-        )
-
-    async def _cmd_loop_stop(self, chat_id: int, user_id: int, msg_id: int | None = None):
-        self._loop_stop_flags[user_id] = True
-        task = self._loop_tasks.get(user_id)
-        if task and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
-            self._loop_tasks.pop(user_id, None)
-            await self.send_message(
-                chat_id,
-                "⏹ <b>Loop Mode stopped.</b>\n"
-                "<blockquote>You can /loop_start again with the same config, or /loop_setup to change links.</blockquote>",
-                reply_to=msg_id,
-            )
-        else:
-            self._loop_tasks.pop(user_id, None)
-            await self.send_message(
-                chat_id,
-                "ℹ No active loop was running.",
-                reply_to=msg_id,
-            )
-
-    async def _cmd_loop_status(self, chat_id: int, user_id: int, msg_id: int | None = None):
-        cfg = self._loop_configs.get(user_id)
-        task = self._loop_tasks.get(user_id)
-        running = bool(task and not task.done())
-        if not cfg:
-            await self.send_message(
-                chat_id,
-                "ℹ No loop configuration set. Use <b>/loop_setup</b> first.",
-                reply_to=msg_id,
-            )
-            return
-        times = cfg.get("times", 0)
-        times_label = "Unlimited" if times == 0 else str(times)
-        progress = cfg.get("current_cycle", 0)
-        done = cfg.get("completed_count", 0)
-        failed = cfg.get("failed_count", 0)
-        status = "🟢 RUNNING" if running else "⚪ IDLE"
-        await self.send_message(
-            chat_id,
-            f"📊 <b>Loop Mode Status</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<blockquote>Status: <code>{status}</code>\n"
-            f"Links: <code>{len(cfg.get('links') or [])}</code>\n"
-            f"Cycles target: <code>{times_label}</code>\n"
-            f"Current cycle: <code>{progress}</code>\n"
-            f"✅ Completed: <code>{done}</code>\n"
-            f"❌ Failed: <code>{failed}</code>\n"
-            f"Concurrency: <code>{int(cfg.get('concurrency') or 3)}</code> • Cache: <code>OFF</code></blockquote>",
-            reply_to=msg_id,
-        )
-
-    async def _run_loop_mode(
-        self,
-        chat_id: int,
-        user_id: int,
-        from_user: dict,
-        cfg: dict,
-    ):
-        links = list(cfg.get("links") or [])
-        times = int(cfg.get("times") or 0)
-        concurrency = int(cfg.get("concurrency") or 3)
-        if not links:
-            return
-
-        sem = asyncio.Semaphore(max(1, min(concurrency, 5)))
-        cycle = 0
-        cfg["completed_count"] = 0
-        cfg["failed_count"] = 0
-        cfg["current_cycle"] = 0
-
-        try:
-            while True:
-                if self._loop_stop_flags.get(user_id):
-                    break
-                pstat = self.db.get_user_premium_status(user_id)
-                if not pstat.get("is_premium") and not self.db.is_admin(user_id):
-                    await self.send_message(
-                        chat_id,
-                        "⏹ <b>Loop stopped</b> — Premium expired. Renew with /premium.",
-                    )
-                    break
-
-                cycle += 1
-                cfg["current_cycle"] = cycle
-                if times > 0 and cycle > times:
-                    break
-
-                await self.send_message(
-                    chat_id,
-                    f"🔄 <b>Cycle {cycle}{'/' + str(times) if times else ''} starting…</b> "
-                    f"({len(links)} links, max {concurrency} concurrent)",
-                )
-
-                async def _one(url: str):
-                    if self._loop_stop_flags.get(user_id):
-                        return
-                    async with sem:
-                        if self._loop_stop_flags.get(user_id):
-                            return
-                        try:
-                            await self._process_loop_single(
-                                chat_id, user_id, from_user, url, cycle
-                            )
-                            cfg["completed_count"] = int(cfg.get("completed_count") or 0) + 1
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception:
-                            cfg["failed_count"] = int(cfg.get("failed_count") or 0) + 1
-
-                tasks = [asyncio.create_task(_one(u)) for u in links]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for r in results:
-                    if isinstance(r, asyncio.CancelledError):
-                        raise r
-
-                if self._loop_stop_flags.get(user_id):
-                    break
-                if times > 0 and cycle >= times:
-                    break
-
-                delay = random.uniform(3.0, 5.0)
-                await self.send_message(
-                    chat_id,
-                    f"⏳ Cycle {cycle} done. Waiting <b>{delay:.1f}s</b> before next cycle…",
-                )
-                await asyncio.sleep(delay)
-
-            if not self._loop_stop_flags.get(user_id):
-                await self.send_message(
-                    chat_id,
-                    f"✅ <b>Loop Mode finished</b>\n"
-                    f"<blockquote>Cycles completed: <code>{cycle}</code>\n"
-                    f"✅ Successes: <code>{cfg.get('completed_count', 0)}</code>\n"
-                    f"❌ Failures: <code>{cfg.get('failed_count', 0)}</code></blockquote>",
-                )
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            with contextlib.suppress(Exception):
-                await self.send_message(
-                    chat_id,
-                    f"⚠ Loop Mode error: <code>{html.escape(str(e)[:200])}</code>",
-                )
-        finally:
-            self._loop_tasks.pop(user_id, None)
-            self._loop_stop_flags.pop(user_id, None)
-
-    async def _process_loop_single(
-        self,
-        chat_id: int,
-        user_id: int,
-        from_user: dict,
-        raw_url: str,
-        cycle: int,
-    ):
-        """Lightweight bypass for loop mode: always force=True (no cache), compact result."""
-        url = norm_url(raw_url)
-        t0 = time.time()
-
-        prot_src = self.db.check_protected_source_url(url)
-        if prot_src:
-            await self.send_message(
-                chat_id,
-                f"🛡 <b>Cycle {cycle}</b> — Protected link skipped\n"
-                f"<blockquote><code>{html.escape(url[:120])}</code></blockquote>",
-            )
-            return
-
-        try:
-            res = await self.resolve_fn(
-                url,
-                force=True,
-                origin="telegram-loop",
-                user_id=user_id,
-                username=from_user.get("username"),
-            )
-            elapsed = time.time() - t0
-            dest_url = (res or {}).get("url") or ""
-            extra_links = list((res or {}).get("extra_links") or [])
-
-            if not dest_url:
-                raise Exception("No destination returned")
-
-            prot_dest = self.db.check_protected_destination_url(dest_url, source_url=url)
-            if not prot_dest and extra_links:
-                for ex_u in extra_links:
-                    prot_dest = self.db.check_protected_destination_url(ex_u, source_url=url)
-                    if prot_dest:
-                        break
-            if prot_dest:
-                await self.send_message(
-                    chat_id,
-                    f"🛡 <b>Cycle {cycle}</b> — Protected destination blocked\n"
-                    f"<blockquote><code>{html.escape(url[:100])}</code></blockquote>",
-                )
-                return
-
-            rows = [
-                [
-                    {"text": "📋 COPY", "copy_text": {"text": dest_url}},
-                    {"text": "OPEN ↗️", "url": dest_url, "style": "success"},
-                ]
-            ]
-            if extra_links:
-                pair = []
-                for idx, ex in enumerate(extra_links[:6], 1):
-                    pair.append({"text": f"#{idx} ↗️", "url": ex})
-                    if len(pair) == 2:
-                        rows.append(pair)
-                        pair = []
-                if pair:
-                    rows.append(pair)
-
-            txt = (
-                f"✅ <b>Cycle {cycle}</b> • <code>{elapsed:.1f}s</code>\n"
-                f"<blockquote>🔗 <code>{html.escape(url[:90])}{'…' if len(url) > 90 else ''}</code>\n"
-                f"➡️ <code>{html.escape(dest_url[:200])}</code></blockquote>"
-            )
-            await self.send_message(
-                chat_id,
-                txt,
-                reply_markup={"inline_keyboard": rows},
-            )
-            with contextlib.suppress(Exception):
-                await self.db.touch_user(from_user, increment_bypass=True)
-        except ProtectedLinkError:
-            await self.send_message(
-                chat_id,
-                f"🛡 <b>Cycle {cycle}</b> — Protected link\n"
-                f"<blockquote><code>{html.escape(url[:120])}</code></blockquote>",
-            )
-        except Exception as e:
-            await self.send_message(
-                chat_id,
-                f"❌ <b>Cycle {cycle}</b> failed • <code>{html.escape(str(e)[:120])}</code>\n"
-                f"<blockquote><code>{html.escape(url[:100])}</code></blockquote>",
-            )
 
     async def _cmd_myplan(
         self,
@@ -3620,56 +3035,6 @@ class TelegramBot:
         if data == "usr:start":
             await self.api("answerCallbackQuery", {"callback_query_id": cb_id})
             await self._cmd_start(chat_id, user_id, from_user, None, edit_id=edit_target)
-            return
-
-        if data.startswith("loop:conc:"):
-            try:
-                await self.api("answerCallbackQuery", {"callback_query_id": cb_id})
-            except Exception:
-                pass
-            try:
-                conc = int(data.split(":")[-1])
-                if conc < 1 or conc > 5:
-                    raise ValueError("concurrency must be 1-5")
-                state = self._user_states.get(user_id) or {}
-                if state.get("step") != "concurrency":
-                    await self.send_message(
-                        chat_id,
-                        "⚠ Concurrency step is not active. Run <b>/loop_setup</b> again.",
-                        reply_to=msg_id,
-                    )
-                    return
-                await self._finish_loop_setup(chat_id, user_id, state, conc, msg_id)
-            except Exception as e:
-                print(f"loop conc callback error uid={user_id}: {e}", flush=True)
-                await self.send_message(
-                    chat_id,
-                    f"⚠ Loop error: <code>{html.escape(str(e)[:180])}</code>",
-                    reply_to=msg_id,
-                )
-            return
-
-        if data in ("loop:start", "loop:setup", "loop:stop", "loop:status"):
-            try:
-                await self.api("answerCallbackQuery", {"callback_query_id": cb_id})
-            except Exception:
-                pass
-            try:
-                if data == "loop:start":
-                    await self._cmd_loop_start(chat_id, user_id, from_user, msg_id)
-                elif data == "loop:setup":
-                    await self._cmd_loop_setup(chat_id, user_id, from_user, msg_id)
-                elif data == "loop:stop":
-                    await self._cmd_loop_stop(chat_id, user_id, msg_id)
-                else:
-                    await self._cmd_loop_status(chat_id, user_id, msg_id)
-            except Exception as e:
-                print(f"loop callback {data} error uid={user_id}: {e}", flush=True)
-                await self.send_message(
-                    chat_id,
-                    f"⚠ Loop error: <code>{html.escape(str(e)[:180])}</code>",
-                    reply_to=msg_id,
-                )
             return
 
         # Admin callbacks

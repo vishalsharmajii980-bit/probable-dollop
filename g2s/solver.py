@@ -535,7 +535,12 @@ class TurnstileSolver:
             bool(self.base)
             and now_m >= self._remote_unauth_until
             and now_m >= _GLOBAL_REMOTE_UNAUTH_UNTIL
-            and not (not self.api_key and "cf.vltcx.eu.cc" in self.base)
+            # Allow keyless remote solvers (e.g. turnstile-solver-fixed on Railway).
+            # Only skip remote when base is the legacy locked cf.vltcx host without a key.
+            and not (
+                not self.api_key
+                and "cf.vltcx.eu.cc" in (self.base or "")
+            )
         )
         # 1. Try remote solver if configured and not known-unauthorized/unresponsive
         if use_remote:

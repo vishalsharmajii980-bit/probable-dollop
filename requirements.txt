@@ -13,4 +13,6 @@ SpeechRecognition>=3.10.4
 numpy>=1.26.0
 camoufox[geoip]==0.5.6
 fpgen==1.2.1
-aiodns>=3.2.0
+
+
+

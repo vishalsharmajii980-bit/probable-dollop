@@ -15,8 +15,8 @@ Whenever a page already contains the final ?wp= link in its source, the engine
 jumps straight to it and skips the remaining blog steps.
 """
 import asyncio
-import contextlib
 import json
+import html as _html
 import os
 import re
 import time
@@ -54,6 +54,13 @@ EXCLUDE = (r"wait|please|\d+\s*s(ec|econds)?\b|verifying|telegram|youtube|instag
 BLOCK_RE = re.compile(r"ip_risk_blocked|vpn detected|turn off your vpn|access temporarily restricted|"
                       r"browser not supported", re.I)
 CF_HOST = "challenges.cloudflare.com"
+
+# Hosts that hard-block hosting/datacenter IPs with a 403 "Access Blocked" page —
+# these MUST be routed through a residential/mobile tunnel device.
+FORCE_TUNNEL_HOSTS = {"titan-links.com", "www.titan-links.com"}
+# titan-links.com style gate page: "Access Blocked — Hosting / Data Center connection detected"
+DATACENTER_GATE_RE = re.compile(r"access\s+blocked", re.I)
+
 _ARO_FINAL_SEM = asyncio.Semaphore(int(os.environ.get("G2S_SOLVER_CONCURRENCY", "32")))
 _ARO_HOST_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
@@ -73,7 +80,7 @@ def _get_aro_host_lock(short_host: str) -> asyncio.Lock:
 
 @dataclass
 class Config:
-    solver_url: str = "https://cf.vltcx.eu.cc"
+    solver_url: str = "https://turnstile-solver-fixed-production-283c.up.railway.app"
     solver_api_key: str | None = None
     browser_channel: str | None = "chrome"     # "chrome", "msedge" or None (bundled chromium)
     headless: bool = False                     # headless is often refused by Cloudflare
@@ -81,7 +88,7 @@ class Config:
     accel_factor: float = 0.1                  # client side timers run 10x faster
     no_accel_hosts: list = field(default_factory=lambda: [
         "get2short.com", "liteshort.com", "nowshort.com", "linksflys.com",
-        "vplink.in", "arolinks.com", "babylinks.in", "alpha-links.in", "urllinkshort.in", "titan-links.com",
+        "vplink.in", "arolinks.com", "babylinks.in", "alpha-links.in", "urllinkshort.in",
         "lksfy.com", "softurl.in", "shortwala.com", "earnlinks.in", "inshorturl.in", "inshorturl.com",
         "urlspay.com", "v2links.me", "speedy-links.com", "best-links.org", "loot-link.com",
         "loot-links.com", "lootdest.org", "lootdest.com", "links-loot.com", "lootlabs.gg",
@@ -93,6 +100,8 @@ class Config:
         "nuzar.online", "mtc2.nuzar.online", "kannursalafi.com",
         "lockr.net", "lockr.so", "lockr.to", "directlinker.com",
         "publicbotshub-verify.koyeb.app", "avbypassbot.koyeb.app", "koyeb.app", "herokuapp.com",
+        "vipshort.in", "link.vipshort.in", "m.vipshort.in", "geniousguide.com",
+        "titan-links.com", "www.titan-links.com",
     ])
     timeout: int = 300
     stuck_seconds: int = 100                   # give up if one page doesn't progress
@@ -517,6 +526,13 @@ _NEVER_CHAIN_HOSTS = (
 )
 
 DEFAULT_ORIGIN_IPS = {
+    "titan-links.com": "66.116.207.125",          # leaked via SPF TXT: v=spf1 ip4:66.116.207.125
+    "www.titan-links.com": "66.116.207.125",
+    "ver.titan-links.com": "66.116.207.125",       # same LiteSpeed origin box (301 -> vipcpm.in gate)
+    "server.titan-links.com": "66.116.207.125",     # REAL gate: /<alias> has form#go-link -> /links/go -> dest
+    "finance.apnamaterials.site": "66.116.207.125",   # ad-gate on same box (crt.sh: apnamaterials.site.alpha-links.in)
+    "apnamaterials.site": "66.116.207.125",
+    "www.apnamaterials.site": "66.116.207.125",
     "alpha-links.in": "66.116.207.125",
     "ai3.alpha-links.in": "66.116.207.125",
     "get2short.com": "66.116.207.125",
@@ -525,9 +541,6 @@ DEFAULT_ORIGIN_IPS = {
     "sub.odiadance.com": "66.116.207.125",
     "babylinks.in": "66.116.207.125",
     "go.babylinks.in": "66.116.207.125",
-    "titan-links.com": "66.116.207.125",
-    "www.titan-links.com": "66.116.207.125",
-    "finance.apnamaterials.site": "66.116.207.125",
     "arolinks.com": "82.25.97.148",
     "www.arolinks.com": "82.25.97.148",
     "vplink.in": "82.25.97.148",
@@ -539,6 +552,23 @@ DEFAULT_ORIGIN_IPS = {
 }
 
 DEFAULT_CHAIN_HOSTS = (
+    "work.jobsheel.com",
+    "jobsheel.com",
+    "freepaste.link",
+    "www.freepaste.link",
+    "fpst.us",
+    "www.fpst.us",
+    "titan-links.com",
+    "www.titan-links.com",
+    "ver.titan-links.com",
+    "server.titan-links.com",
+    "vipcpm.in",
+    "www.vipcpm.in",
+    "finance.apnamaterials.site",
+    "apnamaterials.site",
+    "www.apnamaterials.site",
+    "makeloans.in",
+    "www.makeloans.in",
     "bcsakhi.in",
     "sarkarijobcorner.com",
     "sarkariresultus.com",
@@ -624,6 +654,15 @@ DYNAMIC_RULES: dict = {
     "lockr_hosts": list(_LOCKR_HOSTS),
     "directlinker_hosts": list(_DIRECTLINKER_HOSTS),
     "ad_domains": [
+        "work.jobsheel.com",
+        "jobsheel.com",
+        "ver.titan-links.com",
+        "server.titan-links.com",
+        "vipcpm.in",
+        "www.vipcpm.in",
+        "finance.apnamaterials.site",
+        "apnamaterials.site",
+        "www.apnamaterials.site",
         "nerventualken.com",
         "nismscoldnesfspu.org",
         "onsultingco.com",
@@ -789,6 +828,7 @@ def sanitize_dynamic_rules(rules: dict | None) -> dict:
         "get2short.com", "link.get2short.com", "lnbz.la", "jkdamours.com", "odiadance.com",
         "arolinks.com", "vplink.in", "alpha-links.in", "babylinks.in", "gplinks.co",
         "lksfy.com", "shortxlinks.com", "shortxlinks.in", "softurl.in", "vipshort.in",
+        "titan-links.com",
         "liteshort.com", "nowshort.com", "urlking.in", "move2link.co", "genlink.site",
         "linkpays.in", "nazki-protected.vercel.app",
         *_LINKVERTISE_HOSTS, *_LOOTLABS_HOSTS, *_LOCKR_HOSTS, *_DIRECTLINKER_HOSTS, *_PASTE_CONTAINER_HOSTS,
@@ -895,6 +935,7 @@ class Job:
         self.error_recoveries = 0
         self.alphalinks_blog_host = None
         self.vipshort_m_url = None
+        self.vipshort_blog_host = None
         self.google_required_client_id = None
         self.google_required_reason = None
         self.loot_tc_tasks = None
@@ -1021,12 +1062,44 @@ class Job:
     def is_dest(self, url):
         if not url.lower().startswith(("http://", "https://")):
             return False
+        # google site-search pages are fake-hop decoys (e.g. jobsheel "Please wait"), never a destination
+        if re.search(r"google\.[a-z.]+/search", url, re.I):
+            return False
         h = host_of(url)
         if not h or self.is_chain(url) or h == CF_HOST:
             return False
         if self.is_ad_domain(url):
             return False
         return True
+
+
+_TITAN_DETOUR_HOSTS = (
+    "titan-links.com", "ver.titan-links.com", "server.titan-links.com", "vipcpm.in",
+    "odiadance.com", "jobsheel.com", "makeloans.in", "apnamaterials.site",
+)
+_TITAN_ADNET_HOSTS = ("odiadance.com", "jobsheel.com", "makeloans.in", "apnamaterials.site")
+
+
+def _is_titan_detour(url: str) -> bool:
+    h = host_of(url or "")
+    return any(h == d or h.endswith("." + d) for d in _TITAN_DETOUR_HOSTS)
+
+
+def _is_titan_adnet(url: str) -> bool:
+    h = host_of(url or "")
+    return any(h == d or h.endswith("." + d) for d in _TITAN_ADNET_HOSTS)
+
+
+def _unwrap_google_url(u: str) -> str:
+    """Strip google.com/url?url=... wrappers (possibly chained)."""
+    from urllib.parse import unquote as _uq
+    for _ in range(4):
+        m = re.match(r"^https?://(?:www\.)?google\.[a-z.]+/url\?[^#]*[?&]url=([^&]+)", u or "", re.I)
+        if m:
+            u = _uq(m.group(1))
+            continue
+        break
+    return u
 
 
 def ts_pending_check(snap):
@@ -1093,59 +1166,6 @@ class Bypasser:
         self._pool_lock = asyncio.Lock() if not _is_worker else None
         self._workers: list["Bypasser"] = [self] if not _is_worker else []
 
-
-    def _fresh_request_identity(self, job=None, log_label: str = "") -> tuple[dict, str | None, str]:
-        """Fresh Indian-looking IP headers + optional rotated tunnel proxy for every link visit.
-        Same isolation pattern used by get2short / arolinks / vplink so sequential & loop
-        jobs never reuse the same session fingerprint.
-        Returns (headers, proxy_url_or_None, fake_ip).
-        """
-        import random
-        fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
-        ua_pool = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        ]
-        ua = random.choice(ua_pool)
-        headers = {
-            "User-Agent": ua,
-            "Accept-Language": "en-US,en;q=0.9",
-            "CF-Connecting-IP": fake_ip,
-            "X-Forwarded-For": fake_ip,
-            "X-Real-IP": fake_ip,
-            "CF-IPCountry": "IN",
-        }
-        tunnel_px = None
-        try:
-            px_pool = list(self._get_active_tunnel_proxies() or [])
-            random.shuffle(px_pool)
-            for cand in px_pool:
-                c = (cand or "").strip()
-                if c and not self._is_proxy_expired(c):
-                    tunnel_px = c
-                    break
-            if not tunnel_px:
-                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
-                if cfg_px and not self._is_proxy_expired(cfg_px):
-                    tunnel_px = cfg_px
-        except Exception:
-            tunnel_px = None
-        label = log_label or (getattr(job, "base", None) if job is not None else "") or "shortener"
-        if job is not None:
-            try:
-                if tunnel_px:
-                    from urllib.parse import urlparse as _up
-                    _pu = _up(tunnel_px)
-                    _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
-                    job.log(f"🔄 Fresh proxy for this {label} link → {_shown}")
-                else:
-                    job.log(f"🔄 Fresh session IP headers for this {label} link (no tunnel proxy online)")
-            except Exception:
-                pass
-        return headers, tunnel_px, fake_ip
-
     def _get_active_tunnel_proxies(self) -> list[str]:
         """Return all active online WS/HTTP residential tunnel proxy URLs regardless of per-domain toggle."""
         import sys
@@ -1179,6 +1199,91 @@ class Bypasser:
             if p_s and not self._is_proxy_expired(p_s) and p_s not in out:
                 out.append(p_s)
         return out
+
+    async def _probe_tunnel_proxy(self, px_url: str, timeout_s: float = 8.0) -> bool:
+        """Liveness probe of a WS-tunnel bridge URL. The bridge is a local
+        127.0.0.1:<ephemeral> forwarder that dies whenever the websocket flaps, so
+        always probe before assigning it to a browser/session."""
+        if not px_url:
+            return False
+        try:
+            import aiohttp as _ah
+            async with _ah.ClientSession(timeout=_ah.ClientTimeout(total=timeout_s, connect=timeout_s)) as s:
+                async with s.get("https://api.ipify.org?format=json", proxy=px_url, ssl=False) as r:
+                    if r.status == 200:
+                        return True
+        except Exception:
+            pass
+        try:
+            import aiohttp as _ah
+            async with _ah.ClientSession(timeout=_ah.ClientTimeout(total=timeout_s, connect=timeout_s)) as s:
+                async with s.get("http://api.ipify.org", proxy=px_url) as r:
+                    return r.status == 200
+        except Exception:
+            return False
+
+    def _fresh_live_tunnel_candidates(self) -> list[dict]:
+        """Re-fetch LIVE WS tunnel proxy candidates right now. Bridge URLs change on
+        every WS reconnect, so a candidate captured at job start may be a dead port."""
+        cands: list[dict] = []
+        try:
+            for px in self._get_active_tunnel_proxies():
+                if px and px not in [c.get("proxy_url") for c in cands]:
+                    cands.append({
+                        "proxy_url": px, "device_id": "live-ws-bridge",
+                        "device_name": "live tunnel bridge", "public_ip": "residential",
+                    })
+        except Exception:
+            pass
+        return cands
+
+    async def _wait_for_live_tunnel(self, max_wait: float = 40.0, stable_probes: int = 2) -> str | None:
+        """Poll for a LIVE *stable* WS-tunnel bridge URL. The tunnel device reconnects
+        periodically (edge idle-kills the WS) and each reconnect gets a NEW local
+        127.0.0.1:<port> bridge while the old port dies — so a candidate captured even a
+        second ago may be dead. Returns a proxy_url that answered `stable_probes`
+        consecutive probes ~2s apart, or None on timeout."""
+        import asyncio as _aio
+        t_end = time.monotonic() + max_wait
+        while time.monotonic() < t_end:
+            for c in self._fresh_live_tunnel_candidates():
+                px = c.get("proxy_url")
+                if not px or self._is_proxy_expired(px):
+                    continue
+                ok = 0
+                for _ in range(stable_probes):
+                    if await self._probe_tunnel_proxy(px, timeout_s=6.0):
+                        ok += 1
+                        await _aio.sleep(2.0)
+                    else:
+                        self._mark_proxy_expired(px)
+                        ok = 0
+                        break
+                if ok >= stable_probes:
+                    return px
+            await _aio.sleep(2.5)
+        return None
+
+    def _unmark_proxy(self, px: str | None):
+        if not px:
+            return
+        self._expired_proxies.discard(px)
+        if self._parent is not None:
+            self._parent._expired_proxies.discard(px)
+        for w in getattr(self, "_workers", []) or []:
+            w._expired_proxies.discard(px)
+
+    def _tunnel_toggle_on(self, url: str) -> bool:
+        """True if the admin enabled tunnel routing for this shortener domain."""
+        try:
+            import sys as _sys
+            main_mod = _sys.modules.get("server") or _sys.modules.get("__main__")
+            db_obj = getattr(main_mod, "db", None) if main_mod is not None else None
+            if db_obj is not None and hasattr(db_obj, "should_use_tunnel_for_url"):
+                return bool(db_obj.should_use_tunnel_for_url(url or ""))
+        except Exception:
+            pass
+        return False
 
     async def _new_page_safe(self):
         """Safely create a new browser tab, auto-recovering if self.ctx died or is None."""
@@ -1362,14 +1467,17 @@ class Bypasser:
                 "www.vplink.in": "82.25.97.148",
                 "get2short.com": "66.116.207.125",
                 "link.get2short.com": "66.116.207.125",
+                "titan-links.com": "66.116.207.125",
+                "www.titan-links.com": "66.116.207.125",
+                "finance.apnamaterials.site": "66.116.207.125",
+                "apnamaterials.site": "66.116.207.125",
+                "www.apnamaterials.site": "66.116.207.125",
                 "alpha-links.in": "66.116.207.125",
                 "ai3.alpha-links.in": "66.116.207.125",
                 "odiadance.com": "66.116.207.125",
                 "sub.odiadance.com": "66.116.207.125",
                 "babylinks.in": "66.116.207.125",
                 "go.babylinks.in": "66.116.207.125",
-                "titan-links.com": "66.116.207.125",
-                "www.titan-links.com": "66.116.207.125",
                 "liteshort.com": "159.198.79.28",
                 "link.liteshort.com": "159.198.79.28",
                 "nowshort.com": "159.198.79.28",
@@ -1657,6 +1765,7 @@ class Bypasser:
                     prep_res = await prep_res
                 if isinstance(prep_res, tuple) and len(prep_res) == 2:
                     proxy_candidates, fallback_candidates = prep_res
+                    self._last_proxy_candidates = list(proxy_candidates or [])
             if self._is_worker:
                 w_res = await self._resolve_on_worker(
                     url, _fanout_log, proxy_candidates, fallback_candidates, on_tunnel_used
@@ -1968,6 +2077,9 @@ class Bypasser:
         orig_source = url
         url = normalize_input_url(url)
         job = Job(url, log, loop)
+        # proxy candidates captured by resolve() before the direct tier (tunnel devices)
+        if not getattr(self, "_last_proxy_candidates", None):
+            self._last_proxy_candidates = []
 
         def _done() -> dict:
             dest = job.result.result()
@@ -2000,6 +2112,7 @@ class Bypasser:
             raise BypassError(
                 "Paid QRIS paywall link (bayarlink.com requires real-money Rp payment to unlock and cannot be bypassed for free)"
             )
+
 
         # 0a. Paste containers (pastelink.net, pastetoday.com, pastebin.com, hastebin.com, rentry.co, paster.so, etc.) -> extract embedded destination link or return paste URL
         if any(h_full == ph or h_full.endswith("." + ph) or job.base == ph for ph in _PASTE_CONTAINER_HOSTS):
@@ -2084,6 +2197,8 @@ class Bypasser:
                 return _done()
             if job.fatal:
                 raise BypassError(job.fatal)
+            if getattr(job, "browser_handoff_url", None):
+                return {"_browser_handoff": job.browser_handoff_url, "steps": list(job.steps)}
 
         # 0e. VPLink Beta (vplinks.in)
         vb_hosts = DYNAMIC_RULES.get("vplinks_beta_hosts") or ["vplinks.in"]
@@ -2229,9 +2344,6 @@ class Bypasser:
         if job.base == "alpha-links.in":
             if await self._try_alphalinks_direct(job):
                 return _done()
-        if job.base in ("titan-links.com", "www.titan-links.com"):
-            if await self._try_titan_links_direct(job):
-                return True
         if job.base in ("get2short.com", "lnbz.la"):
             if await self._try_get2short_direct(job):
                 return _done()
@@ -2257,6 +2369,70 @@ class Bypasser:
             if getattr(job, "browser_handoff_url", None):
                 return {"_browser_handoff": job.browser_handoff_url, "steps": list(job.steps)}
             raise BypassError(job.fatal or f"Could not resolve {job.base} link via origin API")
+        # LinkGate (*.pages.dev/c/...) → API visit/start → sponsor wait → verify → redirect
+        if (
+            "linkgate" in (job.base or "")
+            or "pages.dev" in (job.base or "")
+            or "/c/" in (job.start_url or "")
+            and "pages.dev" in (job.start_url or "")
+        ):
+            if await self._try_linkgate_direct(job):
+                return _done()
+        if job.base == "titan-links.com":
+            # With a residential tunnel/proxy available, drive the whole LinkShort chain
+            # through it (apnamaterials/makeloans gates block datacenter IPs).
+            _tp = [c.get("proxy_url") for c in (getattr(self, "_last_proxy_candidates", None) or []) if c.get("proxy_url")]
+            for _c in self._fresh_live_tunnel_candidates():
+                if _c.get("proxy_url") and _c["proxy_url"] not in _tp:
+                    _tp.append(_c["proxy_url"])
+            if not _tp:
+                # makeloans.in/jobsheel gates only pass residential IPs — a direct
+                # datacenter run is doomed, so WAIT for the tunnel device instead
+                log("⏳ titan gates need a residential IP — waiting for the tunnel device…")
+                _wpx = await self._wait_for_live_tunnel(45.0)
+                if _wpx:
+                    _tp = [_wpx]
+            _tried_px: set[str] = set()
+            for _round in range(3):
+                for _px in _tp[:3]:
+                    if _px and _px in _tried_px:
+                        continue
+                    if _px and not self._is_proxy_expired(_px) and not await self._probe_tunnel_proxy(_px):
+                        self._mark_proxy_expired(_px)
+                        log(f"⚠ tunnel bridge …{_px[-12:]} not responding — waiting for a fresh one…")
+                        _wpx = await self._wait_for_live_tunnel(30.0)
+                        if _wpx and _wpx != _px:
+                            self._unmark_proxy(_px)
+                            _px = _wpx
+                            _tp.insert(0, _px)
+                        else:
+                            continue
+                    if _px:
+                        _tried_px.add(_px)
+                        log(f"🛡 titan direct solver via residential tunnel …{_px[-12:]} (round {_round + 1})")
+                    sub = Job(job.start_url, job.log, asyncio.get_running_loop())
+                    try:
+                        if await self._try_titan_links_direct(sub, proxy_url=_px):
+                            job.set_result(sub.result.result(), sub.method)
+                            job.steps.extend(sub.steps)
+                            return _done()
+                    except Exception:
+                        pass
+                # all candidates failed -> re-check for a FRESH live bridge and retry
+                _fresh = await self._wait_for_live_tunnel(45.0)
+                if _fresh and _fresh not in _tried_px:
+                    _tp = [_fresh] + [p for p in _tp if p != _fresh]
+                else:
+                    break
+            if await self._try_titan_links_direct(job):
+                return _done()
+            if job.fatal:
+                raise BypassError(job.fatal)
+            # Fallbacks: origin pin usually already worked; else race ROTATING residential
+            # proxies (fresh IP each run) like the Linkvertise racer.
+            log("🌐 titan-links.com chain reached ad gates (apnamaterials/makeloans) — handing off to browser worker…")
+            job.browser_handoff_url = url
+            return {"_browser_handoff": url, "steps": list(job.steps)}
         if job.base == "vipshort.in":
             if await self._try_vipshort_direct(job):
                 return _done()
@@ -2305,8 +2481,28 @@ class Bypasser:
                     c for c in fallback_candidates
                     if c.get("proxy_url") and not self._is_proxy_expired(c.get("proxy_url"))
                 ]
+            if (
+                (self._tunnel_toggle_on(url) or "titan-links.com" in (url or ""))
+                and not (proxy_candidates or [])
+                and not (fallback_candidates or [])
+            ):
+                _wpx = await self._wait_for_live_tunnel(45.0)
+                if _wpx:
+                    proxy_candidates = [{
+                        "proxy_url": _wpx, "device_id": "live-ws-bridge",
+                        "device_name": "live tunnel bridge", "public_ip": "residential",
+                    }]
+                    log(f"🛡 titan gate needs a residential IP — got live tunnel bridge …{_wpx[-12:]}")
             if proxy_candidates is not None:
                 desired_px = (proxy_candidates[0].get("proxy_url") if proxy_candidates else None) or None
+                if desired_px and self._is_proxy_expired(desired_px):
+                    desired_px = None
+                if desired_px is None and fallback_candidates:
+                    for _fb in fallback_candidates:
+                        _fpx = _fb.get("proxy_url")
+                        if _fpx and not self._is_proxy_expired(_fpx):
+                            desired_px = _fpx
+                            break
                 if self.cfg.proxy != desired_px:
                     self.cfg.proxy = desired_px
                     if self.ctx is not None:
@@ -2325,6 +2521,19 @@ class Bypasser:
                         f"🛡 Using tunnel device: {cand0.get('device_name') or cand0.get('device_id')} "
                         f"({cand0.get('public_ip') or 'active tunnel'})"
                     )
+                # titan-links.com blocks datacenter IPs — with any residential proxy/tunnel active,
+                # try the fast aiohttp LinkShort solver through it before opening the browser.
+                if self.cfg.proxy and "titan-links.com" in (url or ""):
+                    job_t = Job(normalize_input_url(url), log, asyncio.get_running_loop())
+                    if await self._try_titan_links_direct(job_t):
+                        dest = job_t.result.result()
+                        return {
+                            "url": dest,
+                            "elapsed": round(time.monotonic() - t0, 1),
+                            "method": job_t.method,
+                            "steps": job_t.steps,
+                            "source": url,
+                        }
                 res = await self._attempt(url, log, t0)
                 if proxy_candidates and on_tunnel_used:
                     try:
@@ -2335,12 +2544,48 @@ class Bypasser:
                         pass
                 return res
             except BypassError as e:
-                is_px_err = bool(self.cfg.proxy and any(err in str(e) for err in (
+                _e_str = str(e)
+                is_px_err = bool(any(err in _e_str for err in (
                     "ERR_PROXY_CONNECTION_FAILED", "ERR_TUNNEL_CONNECTION_FAILED",
-                    "ERR_CONNECTION_RESET", "ERR_EMPTY_RESPONSE", "ERR_CONNECTION_CLOSED"
-                )))
+                    "ERR_CONNECTION_RESET", "ERR_EMPTY_RESPONSE", "ERR_CONNECTION_CLOSED",
+                    "Proxy connection failed", "tunnel offline/expired",
+                )) and (self.cfg.proxy or (proxy_candidates or fallback_candidates)))
                 if is_px_err and proxy_candidates:
                     self._mark_proxy_expired(proxy_candidates[0].get("proxy_url"))
+                    # The WS may have reconnected with a NEW local bridge port — re-fetch
+                    # live candidates, probe, and retry through the fresh bridge first.
+                    _bad_px = proxy_candidates[0].get("proxy_url")
+                    for _att in range(4):
+                        self._unmark_proxy(_bad_px)
+                        _fpx = await self._wait_for_live_tunnel(25.0)
+                        if not _fpx or _fpx == _bad_px:
+                            if _fpx == _bad_px:
+                                _bad_px = None
+                                continue
+                            break
+                        _bad_px = _fpx
+                        log(f"🔁 Tunnel bridge …{_fpx[-12:]} live (attempt {_att + 1}/4) — retrying via residential tunnel…")
+                        self.cfg.proxy = _fpx
+                        await self._restart(self._accel)
+                        t0 = time.monotonic()
+                        try:
+                            res = await self._attempt(url, log, t0)
+                            if on_tunnel_used:
+                                try:
+                                    cb_res = on_tunnel_used("live-ws-bridge", True)
+                                    if asyncio.iscoroutine(cb_res):
+                                        await cb_res
+                                except Exception:
+                                    pass
+                            return res
+                        except BypassError as e_fr:
+                            self._mark_proxy_expired(_fpx)
+                            if not any(err in str(e_fr) for err in (
+                                "ERR_PROXY_CONNECTION_FAILED", "ERR_TUNNEL_CONNECTION_FAILED",
+                                "ERR_CONNECTION_RESET", "ERR_EMPTY_RESPONSE", "ERR_CONNECTION_CLOSED",
+                                "Proxy connection failed", "tunnel offline/expired",
+                            )):
+                                raise BypassError(str(e_fr))
                     if on_tunnel_used:
                         try:
                             cb_res = on_tunnel_used(proxy_candidates[0].get("device_id"), False)
@@ -2403,6 +2648,15 @@ class Bypasser:
                 err_low = str(e).lower()
                 # If direct connection hit an IP/datacenter/monetization gate and online tunnel devices exist,
                 # automatically fail over to the connected tunnel device!
+                if not fallback_candidates:
+                    # device may have come online/reconnected after job start — WAIT for a
+                    # live stable bridge (makeloans.in gates only pass residential IPs)
+                    _wpx = await self._wait_for_live_tunnel(40.0)
+                    if _wpx:
+                        fallback_candidates = [{
+                            "proxy_url": _wpx, "device_id": "live-ws-bridge",
+                            "device_name": "live tunnel bridge", "public_ip": "residential",
+                        }]
                 if (
                     not proxy_candidates
                     and fallback_candidates
@@ -2417,6 +2671,11 @@ class Bypasser:
                             "server redirect loop",
                             "access denied",
                             "data center",
+                            "datacenter",
+                            "residential ip",
+                            "restricting",
+                            "ad gate",
+                            "access temporarily restricted",
                         )
                     )
                 ):
@@ -2509,365 +2768,6 @@ class Bypasser:
                 return await self._attempt(url, log, t0, no_accel=True)
 
     # ------------------------------------------------------------------ engine
-
-    async def _try_titan_links_direct(self, job: Job) -> bool:
-        """Alpha/get2short-style origin bypass for titan-links.com (66.116.207.125).
-
-        Per-link isolation:
-          - Fresh random Indian mobile IP headers every solve
-          - Rotated residential/tunnel proxy when online (never reuse same egress)
-          - Origin-IP pin when no tunnel (bypass CF Access Blocked on short page)
-          - Follow safelink PHP chain (verified=1 / bot=0 to skip Google trap)
-          - Wait server timer then POST /links/go
-        """
-        m = re.match(r"^https?://(?:www\.)?titan-links\.com/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
-        if not m:
-            return False
-        alias = m.group(1)
-        if alias.lower() in ("links", "auth", "admin", "member", "pages", "api", "full", "st", "js", "css"):
-            return False
-
-        import html as _html
-        import random
-        import ssl
-        import socket as _socket
-        import aiohttp
-        from urllib.parse import urlparse, parse_qs, unquote, urljoin
-
-        ORIGIN_IP = (
-            (DYNAMIC_RULES.get("origin_ips") or {}).get("titan-links.com")
-            or "66.116.207.125"
-        )
-        ORIGIN_HOSTS = {
-            "titan-links.com", "www.titan-links.com",
-            "finance.apnamaterials.site", "apnamaterials.site",
-            "makeloans.in", "www.makeloans.in",
-        }
-
-        fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
-        tunnel_px = None
-        try:
-            px_pool = list(self._get_active_tunnel_proxies() or [])
-            random.shuffle(px_pool)
-            for cand in px_pool:
-                c = (cand or "").strip()
-                if c and not self._is_proxy_expired(c):
-                    tunnel_px = c
-                    break
-            if not tunnel_px:
-                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
-                if cfg_px and not self._is_proxy_expired(cfg_px):
-                    tunnel_px = cfg_px
-        except Exception:
-            tunnel_px = None
-
-        if tunnel_px:
-            try:
-                from urllib.parse import urlparse as _up
-                _pu = _up(tunnel_px)
-                _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
-                job.log(f"🔄 Fresh residential/tunnel proxy for titan-links: {_shown} (IP headers {fake_ip})")
-            except Exception:
-                job.log(f"🔄 Fresh tunnel proxy for titan-links (IP headers {fake_ip})")
-        else:
-            job.log(f"🔄 Fresh session IP headers for titan-links ({fake_ip}) — no tunnel online, using origin IP")
-
-        class _TitanResolver(aiohttp.abc.AbstractResolver):
-            async def resolve(self, host, port=0, family=0):
-                if tunnel_px:
-                    infos = _socket.getaddrinfo(host, port, type=_socket.SOCK_STREAM)
-                    return [{
-                        "hostname": host, "host": sa[0], "port": sa[1],
-                        "family": fam, "proto": proto, "flags": 0,
-                    } for fam, typ, proto, canon, sa in infos]
-                if host in ORIGIN_HOSTS or host.endswith(".apnamaterials.site"):
-                    return [{
-                        "hostname": host, "host": ORIGIN_IP, "port": port or 443,
-                        "family": _socket.AF_INET, "proto": 0, "flags": 0,
-                    }]
-                infos = _socket.getaddrinfo(host, port, type=_socket.SOCK_STREAM)
-                return [{
-                    "hostname": host, "host": sa[0], "port": sa[1],
-                    "family": fam, "proto": proto, "flags": 0,
-                } for fam, typ, proto, canon, sa in infos]
-
-            async def close(self):
-                pass
-
-        def _unwrap_google(loc: str) -> str:
-            if "google.com/url" in (loc or "") and "url=" in loc:
-                try:
-                    real = unquote(parse_qs(urlparse(loc).query).get("url", [""])[0])
-                    if real.startswith("http"):
-                        return real
-                except Exception:
-                    pass
-            return loc
-
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-        ua = (
-            "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
-        )
-        base_headers = {
-            "User-Agent": ua,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
-            "CF-Connecting-IP": fake_ip,
-            "X-Forwarded-For": fake_ip,
-            "X-Real-IP": fake_ip,
-            "CF-IPCountry": "IN",
-        }
-        _px = {"proxy": tunnel_px} if tunnel_px else {}
-
-        try:
-            try:
-                conn_w = aiohttp.TCPConnector(resolver=_TitanResolver(), ssl=ssl_ctx)
-                async with aiohttp.ClientSession(
-                    connector=conn_w,
-                    cookie_jar=aiohttp.DummyCookieJar(),
-                    headers=base_headers,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as s_warm:
-                    async with s_warm.get(
-                        f"https://titan-links.com/{alias}",
-                        allow_redirects=False,
-                        **_px,
-                    ) as rw:
-                        await rw.read()
-                job.log("  pre-warm impression done")
-            except Exception:
-                pass
-
-            fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
-            base_headers.update({
-                "CF-Connecting-IP": fake_ip,
-                "X-Forwarded-For": fake_ip,
-                "X-Real-IP": fake_ip,
-            })
-
-            conn = aiohttp.TCPConnector(resolver=_TitanResolver(), ssl=ssl_ctx)
-            jar = aiohttp.CookieJar(unsafe=True)
-            async with aiohttp.ClientSession(
-                connector=conn,
-                cookie_jar=jar,
-                headers=base_headers,
-                timeout=aiohttp.ClientTimeout(total=120),
-            ) as s:
-                job.log(f"Opening https://titan-links.com/{alias}")
-                async with s.get(
-                    f"https://titan-links.com/{alias}",
-                    allow_redirects=False,
-                    **_px,
-                ) as r1:
-                    loc = r1.headers.get("Location", "") or ""
-                    body1 = await r1.text()
-                    low1 = body1.lower()
-                    if r1.status == 404:
-                        raise BypassError("Shortener link not found (404 on titan-links.com)")
-                    if (
-                        r1.status == 403
-                        or "access blocked" in low1
-                        or "data center" in low1
-                        or "hosting / data center" in low1
-                    ):
-                        if not tunnel_px:
-                            raise BypassError(
-                                "titan-links blocked datacenter IP. "
-                                "Connect a residential/mobile tunnel (Pinggy/home proxy) — "
-                                "bot rotates a fresh proxy per link when online."
-                            )
-                        job.log("⚠ Access blocked on short page even via tunnel — continuing chain attempt")
-                    job.log(f"  titan status={r1.status} loc={(loc[:70] if loc else 'none')}")
-                job.steps.append(f"https://titan-links.com/{alias}")
-
-                current = loc
-                final_body = body1 if r1.status == 200 else ""
-                final_url = f"https://titan-links.com/{alias}"
-                for hop in range(8):
-                    if not current:
-                        break
-                    current = _unwrap_google(current)
-                    if not current.startswith("http"):
-                        current = urljoin("https://titan-links.com/", current)
-
-                    if "apnamaterials.site" in current and "verified=" not in current and "bot=" not in current:
-                        sep = "&" if "?" in current else "?"
-                        try_urls = [f"{current}{sep}verified=1", f"{current}{sep}bot=0", current]
-                    else:
-                        try_urls = [current]
-
-                    advanced = False
-                    for try_url in try_urls:
-                        try:
-                            async with s.get(
-                                try_url,
-                                allow_redirects=False,
-                                headers={**base_headers, "Referer": f"https://titan-links.com/{alias}"},
-                                **_px,
-                            ) as rh:
-                                body = await rh.text()
-                                locn = rh.headers.get("Location", "") or ""
-                                if rh.status in (301, 302, 303, 307, 308) and locn:
-                                    locn = _unwrap_google(locn)
-                                    if "google.com" in locn:
-                                        continue
-                                    job.log(f"  hop {hop+1}: → {locn[:70]}")
-                                    current = locn
-                                    advanced = True
-                                    break
-                                if rh.status == 200 and len(body) > 800 and "access denied" not in body.lower():
-                                    job.log(f"  hop {hop+1}: page len={len(body)}")
-                                    final_body = body
-                                    final_url = try_url
-                                    if 'id="go-link"' in body or "id='go-link'" in body:
-                                        current = ""
-                                        advanced = True
-                                        break
-                                    for cand in re.finditer(r"<form([^>]*)>(.*?)</form>", body, re.S | re.I):
-                                        full = cand.group(0)
-                                        if not any(k in full.lower() for k in (
-                                            "safelink", "wpsl", "getlink", "humanverification",
-                                            "ak_safelink", "newwpsafelink",
-                                        )):
-                                            continue
-                                        am = re.search(r'action=["\']([^"\']*)["\']', cand.group(1), re.I)
-                                        action = _html.unescape(am.group(1)) if am else try_url
-                                        if action.startswith("/"):
-                                            action = urljoin(try_url, action)
-                                        fields = {}
-                                        for inp in re.findall(r"<input[^>]+>", cand.group(2), re.I):
-                                            nm = re.search(r'name=["\']([^"\']+)["\']', inp, re.I)
-                                            vl = re.search(r'value=["\']([^"\']*)["\']', inp, re.I)
-                                            if nm:
-                                                fields[nm.group(1)] = (
-                                                    _html.unescape(vl.group(1)) if vl else ""
-                                                )
-                                        fields.setdefault("humanverification", "1")
-                                        job.log(f"  submitting intermediate form → {action[:60]}")
-                                        await asyncio.sleep(3.0)
-                                        async with s.post(
-                                            action,
-                                            data=fields,
-                                            headers={
-                                                **base_headers,
-                                                "Referer": try_url,
-                                                "Content-Type": "application/x-www-form-urlencoded",
-                                            },
-                                            allow_redirects=False,
-                                            **_px,
-                                        ) as rp:
-                                            locn = rp.headers.get("Location", "") or ""
-                                            body_p = await rp.text()
-                                            if locn:
-                                                current = _unwrap_google(locn)
-                                                advanced = True
-                                                break
-                                            if rp.status == 200 and len(body_p) > 800:
-                                                final_body = body_p
-                                                final_url = str(rp.url)
-                                    if advanced:
-                                        break
-                                    current = ""
-                                    advanced = True
-                                    break
-                        except Exception as e:
-                            job.log(f"  hop error: {type(e).__name__}: {e}")
-                            continue
-                    if not advanced:
-                        break
-
-                job.log("⏳ Waiting 25s for titan-links server timer…")
-                await asyncio.sleep(25.0)
-
-                try:
-                    jar.update_cookies({"ab": "2"}, aiohttp.client.URL("https://titan-links.com/"))
-                except Exception:
-                    pass
-                csrf = next((c.value for c in jar if c.key == "csrfToken"), "")
-
-                async with s.get(
-                    f"https://titan-links.com/{alias}",
-                    allow_redirects=False,
-                    **_px,
-                ) as rf:
-                    body_f = await rf.text()
-                    loc_f = rf.headers.get("Location", "") or ""
-                    if rf.status == 200 and ("go-link" in body_f):
-                        final_body = body_f
-                        final_url = f"https://titan-links.com/{alias}"
-                    elif loc_f:
-                        job.log(f"  still redirecting after timer → {loc_f[:60]}")
-
-                fields = {}
-                fm = re.search(
-                    r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>',
-                    final_body or "",
-                    re.S | re.I,
-                )
-                if fm:
-                    for inp in re.findall(r"<input[^>]+>", fm.group(1), re.I):
-                        nm = re.search(r'name=["\']([^"\']+)["\']', inp, re.I)
-                        vl = re.search(r'value=["\']([^"\']*)["\']', inp, re.I)
-                        if nm:
-                            fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
-                    csrf = fields.get("_csrfToken") or csrf
-                    job.log("Reached the shortener's final page")
-                    job.log("Page timer detected — running in real time (server-checked)")
-                    await asyncio.sleep(5.5)
-                else:
-                    fields = {"_method": "POST", "alias": alias}
-                    if csrf:
-                        fields["_csrfToken"] = csrf
-                    await asyncio.sleep(2.0)
-
-                go_headers = {
-                    **base_headers,
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Origin": "https://titan-links.com",
-                    "Referer": final_url or f"https://titan-links.com/{alias}",
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                }
-                if csrf:
-                    go_headers["X-CSRF-Token"] = csrf
-                    fields.setdefault("_csrfToken", csrf)
-
-                job.log("Submitting final form to fetch destination…")
-                async with s.post(
-                    "https://titan-links.com/links/go",
-                    data=fields,
-                    headers=go_headers,
-                    **_px,
-                ) as rg:
-                    raw_txt = await rg.text()
-                    try:
-                        data = json.loads(raw_txt)
-                    except Exception:
-                        data = None
-                    job.log(f"  /links/go status={rg.status} body={str(data)[:120] if data else raw_txt[:120]}")
-                    if isinstance(data, dict) and data.get("url"):
-                        dest = str(data["url"]).strip()
-                        if dest.startswith("http") and "titan-links" not in dest:
-                            if await self._finalize_or_unwrap_dest(
-                                job, dest, final_url or f"https://titan-links.com/{alias}",
-                                "titan-links /links/go",
-                            ):
-                                return True
-                            job.set_result(dest, "titan-links /links/go")
-                            return True
-                        if data.get("status") == "success" and dest.startswith("http"):
-                            job.set_result(dest, "titan-links /links/go")
-                            return True
-
-        except BypassError:
-            raise
-        except Exception as e:
-            job.log(f"  titan origin solver error: {type(e).__name__}: {e}")
-        return False
-
     async def _try_get2short_direct(self, job: Job) -> bool:
         """Direct origin bypass for get2short.com / link.get2short.com (66.116.207.125).
         Uses an isolated CookieJar and fresh Indian mobile IP per request, dynamically follows
@@ -2881,7 +2781,6 @@ class Bypasser:
         alias = m.group(1)
         if alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
             return False
-        job.g2s_direct_tried = True
 
         import html as _html
         import random
@@ -2903,31 +2802,7 @@ class Bypasser:
                     return act, fields
             return None, None
 
-        # Pick optional tunnel/residential proxy for THIS link (rotate every call)
-        tunnel_px = None
-        try:
-            px_pool = list(self._get_active_tunnel_proxies() or [])
-            random.shuffle(px_pool)
-            for cand in px_pool:
-                c = (cand or "").strip()
-                if c and not self._is_proxy_expired(c):
-                    tunnel_px = c
-                    break
-            if not tunnel_px:
-                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
-                if cfg_px and not self._is_proxy_expired(cfg_px):
-                    tunnel_px = cfg_px
-        except Exception:
-            tunnel_px = None
-        if tunnel_px:
-            try:
-                from urllib.parse import urlparse as _up
-                _pu = _up(tunnel_px)
-                _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
-                job.log(f"🔄 Fresh tunnel proxy for get2short: {_shown}")
-            except Exception:
-                job.log("🔄 Fresh tunnel proxy for get2short")
-
+        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
         g2s_origin_hosts = {
             "get2short.com",
             "link.get2short.com",
@@ -2936,22 +2811,17 @@ class Bypasser:
             "jkdamours.com",
             "www.jkdamours.com",
             "you.jkdamours.com",
+            "titan-links.com",
+            "www.titan-links.com",
+            "ver.titan-links.com",
+            "server.titan-links.com",
+            "finance.apnamaterials.site",
+            "apnamaterials.site",
+            "www.apnamaterials.site",
         }
 
         class _G2SOriginResolver(aiohttp.abc.AbstractResolver):
             async def resolve(self, host, port=0, family=0):
-                # When using a real tunnel proxy, do NOT pin to origin IP — let proxy resolve DNS
-                if tunnel_px:
-                    import socket as _socket
-                    infos = _socket.getaddrinfo(host, port, type=_socket.SOCK_STREAM)
-                    return [{
-                        "hostname": host,
-                        "host": sa[0],
-                        "port": sa[1],
-                        "family": fam,
-                        "proto": proto,
-                        "flags": 0,
-                    } for fam, typ, proto, canon, sa in infos]
                 ip = "66.116.207.125" if host in g2s_origin_hosts else host
                 return [{
                     "hostname": host,
@@ -2968,40 +2838,30 @@ class Bypasser:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
+        conn = aiohttp.TCPConnector(resolver=_G2SOriginResolver(), ssl=ssl_ctx)
+        jar = aiohttp.CookieJar(unsafe=True)
         ua = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         )
-        # Retry up to 3 times with a fresh IP each attempt (ip_risk / csrf miss recovery)
-        last_err = None
-        for _g2s_try in range(3):
-          fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
-          base_headers = {
+        base_headers = {
             "User-Agent": ua,
             "CF-Connecting-IP": fake_ip,
             "X-Forwarded-For": fake_ip,
             "X-Real-IP": fake_ip,
             "CF-IPCountry": "IN",
-          }
-          if _g2s_try > 0:
-            job.log(f"🔄 get2short retry {_g2s_try+1}/3 with fresh IP {fake_ip}")
-          conn = aiohttp.TCPConnector(resolver=_G2SOriginResolver(), ssl=ssl_ctx)
-          jar = aiohttp.CookieJar(unsafe=True)
-          try:
-            session_kw = dict(
+        }
+        try:
+            async with aiohttp.ClientSession(
                 connector=conn,
                 cookie_jar=jar,
                 headers=base_headers,
                 timeout=aiohttp.ClientTimeout(total=95, connect=10),
-            )
-            async with aiohttp.ClientSession(**session_kw) as s:
-                # Attach proxy to requests via default when tunnel is available
-                _req_proxy = tunnel_px  # used on each request below
+            ) as s:
                 start_t0 = time.monotonic()
                 g2s_url = f"https://get2short.com/{alias}"
-                job.log(f"Opening {g2s_url}" + (f" via tunnel" if tunnel_px else f" (origin IP, headers {fake_ip})"))
-                _px0 = {"proxy": tunnel_px} if tunnel_px else {}
-                async with s.get(g2s_url, allow_redirects=False, **_px0) as r0:
+                job.log(f"Opening {g2s_url}")
+                async with s.get(g2s_url, allow_redirects=False) as r0:
                     h0 = await r0.text()
                     if r0.status == 404 or (
                         "was not found on this server" in h0.lower()
@@ -3010,13 +2870,7 @@ class Bypasser:
                         raise BypassError("Shortener link not found (404 on get2short.com)")
                     csrf_m = re.search(r'var\s+csrfToken\s*=\s*"([^"]+)"', h0)
                     if not csrf_m:
-                        # Page may be blocked/challenge — retry with fresh IP
-                        if "ip_risk" in h0.lower() or "restricted" in h0.lower() or "blocked" in h0.lower():
-                            job.log(f"⚠ get2short page blocked (IP risk) — retrying with fresh identity…")
-                        else:
-                            job.log("⚠ get2short csrfToken missing — retrying…")
-                        last_err = "csrf_missing"
-                        continue
+                        return False
                     csrf0 = csrf_m.group(1)
                 job.steps.append(g2s_url)
 
@@ -3027,7 +2881,6 @@ class Bypasser:
                 fd0.add_field("brands[0][brand]", "Google Chrome")
                 fd0.add_field("brands[0][version]", "131")
                 next_u = f"https://jkdamours.com/HQsafe.php?HQlink={alias}"
-                _px = {"proxy": tunnel_px} if tunnel_px else {}
                 async with s.post(
                     "https://get2short.com/links/protection-browser-check",
                     data=fd0,
@@ -3037,12 +2890,9 @@ class Bypasser:
                         "Origin": "https://get2short.com",
                         "Referer": g2s_url,
                     },
-                    **_px,
                 ) as r0b:
                     if r0b.status != 200:
-                        job.log(f"⚠ protection-browser-check status={r0b.status} — retrying…")
-                        last_err = f"check_status_{r0b.status}"
-                        continue
+                        return False
                     try:
                         jb0 = await r0b.json(content_type=None)
                         if isinstance(jb0, dict) and jb0.get("nextUrl"):
@@ -3069,13 +2919,11 @@ class Bypasser:
                     t1 = await r1.text()
                     act_cur, fields_cur = _parse_safelink_form(t1)
                 if not act_cur:
-                    # Fallback seed form used by older odiadance/jkdamours templates
                     act_cur = f"{blog_origin}/android-vs-iphone-in-2026-an-introduction-to-both-smartphones/"
                     fields_cur = {"newwpsafelinkHQ": alias}
                 job.steps.append(f"{blog_origin}/")
 
                 def _timer_wait_seconds(fields: dict | None, default_secs: float = 20.0) -> float:
-                    """Wait based on ak_safelink_timer_token when present; else default + buffer."""
                     if not fields:
                         return default_secs + 1.5
                     tok = None
@@ -3102,7 +2950,6 @@ class Bypasser:
                         return False
                     is_final_admin = "admin-post.php" in (act_cur or "")
                     wait_s = _timer_wait_seconds(fields_cur, default_secs=22.0 if is_final_admin else 18.0)
-                    # Final admin-post must also satisfy get2short's >=61.5s protection session window
                     if is_final_admin:
                         elapsed_so_far = time.monotonic() - start_t0
                         if elapsed_so_far + wait_s < 61.5:
@@ -3114,12 +2961,12 @@ class Bypasser:
                     await asyncio.sleep(wait_s)
 
                     job.log(f"Submitting safelink form → {short(act_cur, 70)}")
-                    post_kwargs = {
-                        "data": fields_cur,
-                        "headers": {"Referer": referer, "Origin": blog_origin},
-                        "allow_redirects": False,
-                    }
-                    async with s.post(act_cur, **post_kwargs) as r_post:
+                    async with s.post(
+                        act_cur,
+                        data=fields_cur,
+                        headers={"Referer": referer, "Origin": blog_origin},
+                        allow_redirects=False,
+                    ) as r_post:
                         loc = r_post.headers.get("Location") or r_post.headers.get("location")
                         body_txt = await r_post.text()
                         status = r_post.status
@@ -3127,15 +2974,12 @@ class Bypasser:
                     job.steps.append(act_cur)
                     referer = act_cur
 
-                    # Success: redirect onto link.get2short.com final page
                     if loc and "link.get2short.com" in loc:
                         wp_url = loc if loc.startswith("http") else f"https://link.get2short.com{loc}"
                         break
 
-                    # Some templates 302 back to get2short root on verification failure
                     if loc and re.search(r"get2short\.com/[^/]+/?$", loc) and "link.get2short" not in loc:
                         job.log("⚠ Safelink admin-post bounced back to get2short — retrying chain once with extra wait")
-                        # One recovery: re-seed HQ, re-open blog root, continue with longer waits
                         if step_i < max_safelink_steps - 1 and "g2s_safelink_retry" not in job.shortcut_used:
                             job.shortcut_used.add("g2s_safelink_retry")
                             try:
@@ -3151,24 +2995,20 @@ class Bypasser:
                                 continue
                         return False
 
-                    # Follow relative Location to next blog page if present
                     if loc and status in (301, 302, 303, 307, 308):
-                        from urllib.parse import urljoin
-                        next_page = urljoin(act_cur, loc)
+                        from urllib.parse import urljoin as _uj
+                        next_page = _uj(act_cur, loc)
                         async with s.get(next_page, headers={"Referer": referer}) as r_follow:
                             body_txt = await r_follow.text()
                             referer = str(r_follow.url) if r_follow.url else next_page
                         act_cur, fields_cur = _parse_safelink_form(body_txt)
                         if act_cur:
                             continue
-                        # No form on follow page — try parsing body as-is below
 
                     act_next, fields_next = _parse_safelink_form(body_txt)
                     if act_next and fields_next:
                         act_cur, fields_cur = act_next, fields_next
                         continue
-
-                    # No further safelink form and no wp redirect → give up this direct path
                     return False
 
                 if not wp_url or "link.get2short.com" not in wp_url:
@@ -3219,23 +3059,15 @@ class Bypasser:
                 if isinstance(data, dict) and data.get("status") == "success" and data.get("url"):
                     if await self._finalize_or_unwrap_dest(job, data["url"], wp_url, "links/go API"):
                         return True
-                    return True
-            # success path didn't return — retry with new IP
-            last_err = "no destination from links/go"
-          except BypassError:
+        except BypassError:
             raise
-          except Exception as e:
-            last_err = e
-            job.log(f"⚠ get2short direct attempt {_g2s_try+1} failed: {type(e).__name__}: {e}")
-            continue
+        except Exception:
+            pass
         return False
 
     async def _try_arolinks_direct(self, job: Job) -> bool:
         """Direct origin bypass for arolinks.com & vplink.in (82.25.97.148).
-        Uses an isolated CookieJar + fresh Indian mobile IP headers per request.
-        Also rotates a real residential/tunnel proxy (when available) on EVERY link
-        so sequential/loop jobs never reuse the same egress IP — same pattern as
-        get2short / babylinks fresh-IP isolation.
+        Uses an isolated CookieJar and fresh Indian mobile IP per request.
         """
         m = re.match(
             r"^https?://(?:www\.)?(arolinks\.com|vplink\.in)/([A-Za-z0-9_-]+)",
@@ -3255,63 +3087,16 @@ class Bypasser:
         from urllib.parse import quote
         import aiohttp
 
-        # Fresh mobile-looking IP headers on every single link (never reuse)
-        fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
-
-        # Pick a fresh tunnel/residential proxy for THIS link only (rotate each call)
-        tunnel_px = None
-        try:
-            px_pool = list(self._get_active_tunnel_proxies() or [])
-            random.shuffle(px_pool)
-            for cand in px_pool:
-                c = (cand or "").strip()
-                if c and not self._is_proxy_expired(c):
-                    tunnel_px = c
-                    break
-            if not tunnel_px:
-                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
-                if cfg_px and not self._is_proxy_expired(cfg_px):
-                    tunnel_px = cfg_px
-        except Exception:
-            tunnel_px = None
-        if tunnel_px:
-            # Mask credentials in logs
-            try:
-                from urllib.parse import urlparse as _up
-                _pu = _up(tunnel_px)
-                _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
-            except Exception:
-                _shown = tunnel_px[:40]
-            job.log(f"🔄 Fresh proxy for this {short_host} link → {_shown}")
-        else:
-            job.log(f"🔄 Fresh session IP headers for this {short_host} link (no tunnel proxy online)")
+        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        # Residential tunnel available? Route the whole origin flow through it —
+        # arolinks/vplink rate-limit & gate datacenter IPs on /links/go.
+        _aro_px = None
+        for _c in (getattr(self, "_last_proxy_candidates", None) or []):
+            if _c.get("proxy_url"):
+                _aro_px = _c["proxy_url"]; break
 
         class _AroOriginResolver(aiohttp.abc.AbstractResolver):
-            def __init__(self):
-                self._default = aiohttp.AsyncResolver() if hasattr(aiohttp, "AsyncResolver") else None
-
             async def resolve(self, host, port=0, family=0):
-                # When a real residential/tunnel proxy is in use, let DNS go through the
-                # proxy (do NOT pin origin IP) so the shortener sees the tunnel egress.
-                if tunnel_px:
-                    if self._default is not None:
-                        return await self._default.resolve(host, port, family)
-                    # Fallback: system resolver
-                    import socket
-                    infos = await asyncio.get_event_loop().getaddrinfo(
-                        host, port, family=family or 0, type=socket.SOCK_STREAM
-                    )
-                    out = []
-                    for fam, _, proto, _, sockaddr in infos:
-                        out.append({
-                            "hostname": host,
-                            "host": sockaddr[0],
-                            "port": sockaddr[1],
-                            "family": fam,
-                            "proto": proto,
-                            "flags": 0,
-                        })
-                    return out
                 ip = (
                     "82.25.97.148"
                     if host in ("arolinks.com", "www.arolinks.com", "vplink.in", "www.vplink.in")
@@ -3327,32 +3112,24 @@ class Bypasser:
                 }]
 
             async def close(self):
-                if self._default is not None:
-                    with contextlib.suppress(Exception):
-                        await self._default.close()
+                pass
 
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
-        # With tunnel proxy: default DNS; without: pin origin IP 82.25.97.148
-        if tunnel_px:
-            conn = aiohttp.TCPConnector(ssl=ssl_ctx)
-        else:
-            conn = aiohttp.TCPConnector(resolver=_AroOriginResolver(), ssl=ssl_ctx)
-        ua_pool = [
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-        ]
-        ua = random.choice(ua_pool)
+        conn = aiohttp.TCPConnector(resolver=_AroOriginResolver(), ssl=ssl_ctx)
+        _aro_req_kw: dict = {"proxy": _aro_px, "ssl": False} if _aro_px else {}
+        if _aro_px:
+            job.log(f"🛡 Routing arolinks origin flow via tunnel ({_aro_px[:40]}…)")
+        ua = (
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
         base_headers = {
             "User-Agent": ua,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "CF-Connecting-IP": fake_ip,
-            "X-Forwarded-For": fake_ip,
-            "X-Real-IP": fake_ip,
             "CF-IPCountry": "IN",
             "Upgrade-Insecure-Requests": "1",
         }
@@ -3388,7 +3165,6 @@ class Bypasser:
                 cookie_jar=aiohttp.DummyCookieJar(),
                 headers=base_headers,
                 timeout=aiohttp.ClientTimeout(total=230, connect=15, sock_connect=15),
-                **({"proxy": tunnel_px} if tunnel_px else {}),
             ) as s:
                 t0_html = ""
                 ref_start = time.monotonic()
@@ -3397,7 +3173,7 @@ class Bypasser:
                         async with s.get(
                             aro_url,
                             headers={"Referer": blog_ref},
-                            allow_redirects=False,
+                            allow_redirects=False, **_aro_req_kw,
                         ) as r0:
                             _absorb_cookies(r0)
                             t0_html = await r0.text()
@@ -3413,7 +3189,20 @@ class Bypasser:
                     await asyncio.sleep(1.4 * (_r0_try + 1))
 
                 if f"ref{alias}" not in cookies:
-                    return False
+                    if _aro_req_kw:
+                        # tunnel bridge may have died mid-run — retry the whole flow direct once
+                        job.log("⚠ tunnel first-hit failed — retrying arolinks origin flow direct")
+                        _aro_req_kw.clear()
+                        cookies.clear()
+                        async with s.get(
+                            aro_url,
+                            headers={"Referer": blog_ref},
+                            allow_redirects=False,
+                        ) as r0b:
+                            _absorb_cookies(r0b)
+                            t0_html = await r0b.text()
+                        if f"ref{alias}" not in cookies:
+                            return False
 
                 m_blog = re.search(r'href=["\'](https?://([^"\'/]+)/)[^"\']*["\']', t0_html, re.I)
                 blog_host = m_blog.group(2).lower() if m_blog else ("sarkarijobcorner.com" if short_host == "arolinks.com" else "bcsakhi.in")
@@ -3453,7 +3242,7 @@ class Bypasser:
                                     "Referer": blog_ref,
                                     "Cookie": r1_cookie,
                                 },
-                                allow_redirects=False,
+                                allow_redirects=False, **_aro_req_kw,
                             ) as r1:
                                 _absorb_cookies(r1)
                                 if r1.status != 200:
@@ -3511,11 +3300,11 @@ class Bypasser:
                     )
                     act_m = (
                         re.search(r'class=["\']cf-turnstile["\'][^>]*data-action=["\']([^"\']+)["\']', t1_html, re.I)
-                        or re.search(r'turnstile\.render\s*\([\s\S]*?\baction\s*:\s*["\']([^"\']+)["\']', t1_html, re.I | re.S)
+                        or re.search(r'turnstile\.render\s*\([^)]*?\baction\s*:\s*["\']([^"\']+)["\']', t1_html, re.I | re.S)
                     )
                     cd_m = (
                         re.search(r'class=["\']cf-turnstile["\'][^>]*data-cdata=["\']([^"\']+)["\']', t1_html, re.I)
-                        or re.search(r'turnstile\.render\s*\([\s\S]*?\bcData\s*:\s*["\']([^"\']+)["\']', t1_html, re.I | re.S)
+                        or re.search(r'turnstile\.render\s*\([^)]*?\bcData\s*:\s*["\']([^"\']+)["\']', t1_html, re.I | re.S)
                     )
                     if sk_m:
                         sitekey = sk_m.group(1)
@@ -3524,30 +3313,19 @@ class Bypasser:
                     if cd_m:
                         cdata = cd_m.group(1)
 
-                    # VPLink/AroLinks: bind turnstile action to the fresh CF-Connecting-IP we sent
-                    expected_ip_action = f"ip_{fake_ip.replace('.', '-')}"
-                    if not action:
-                        action = expected_ip_action
-                    if short_host == "vplink.in":
-                        job.log(
-                            f"🔄 VPLink turnstile bind action={action} "
-                            f"cdata={(cdata or '')[:14]}… fresh_ip={fake_ip}"
-                        )
-
                     ts_tok = None
-                    if self.solver:
+                    if self.solver and (sk_m or short_host == "vplink.in"):
                         try:
                             ts_tok = await self.solver.solve_turnstile(
                                 sitekey, aro_url, action=action, cdata=cdata
                             )
-                        except Exception as _ts_err:
-                            job.log(f"Turnstile solver error: {type(_ts_err).__name__}: {_ts_err}")
+                        except Exception:
                             ts_tok = None
                     if ts_tok:
                         fields["cf-turnstile-response"] = ts_tok
                         fields["g-recaptcha-response"] = ts_tok
                         if _r1_attempt == 0:
-                            job.log(f"Turnstile solved by solver, token injected (action={action})")
+                            job.log("Turnstile solved by solver, token injected (1 targets)")
 
                     wait_m = re.search(
                         r'AroShield\.setup\s*\(\s*\{[^}]*?\bwaitSec\s*:\s*(\d+)',
@@ -3585,7 +3363,7 @@ class Bypasser:
                             async with s.post(
                                 f"https://{short_host}/links/go",
                                 data=fields,
-                                headers=go_headers,
+                                headers=go_headers, **_aro_req_kw,
                             ) as r2:
                                 _absorb_cookies(r2)
                                 data = await r2.json(content_type=None)
@@ -3609,7 +3387,7 @@ class Bypasser:
                             "Referer": aro_url,
                             "Cookie": go_cookie,
                         },
-                        allow_redirects=False,
+                        allow_redirects=False, **_aro_req_kw,
                     ) as r3:
                         loc = r3.headers.get("Location")
                         if loc and loc.startswith(("http://", "https://")):
@@ -3803,8 +3581,2011 @@ class Bypasser:
             pass
         return False
 
+
+    async def _try_linkgate_direct(self, job: Job) -> bool:
+        """Direct API bypass for LinkGate (*.pages.dev/c/{slug}/{key}).
+
+        Flow:
+          GET /api/public/{slug}/{key}
+          POST /api/visit/start {linkId, turnstileToken}
+          POST /api/visit/sponsor {visitToken}  → sponsorUrl + waitSeconds
+          (optional GET sponsorUrl)
+          sleep requiredWaitSeconds
+          POST /api/visit/verify {visitToken} → redirectUrl
+          follow redirectUrl to final shortener (often vplink.in)
+        """
+        m = re.search(
+            r"https?://([^/]*pages\.dev)/c/([^/]+)/([^/?#]+)",
+            job.start_url or "",
+            re.I,
+        )
+        if not m:
+            return False
+        host, slug, key = m.group(1), m.group(2), m.group(3)
+        base = f"https://{host}"
+        import aiohttp
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        headers = {
+            "User-Agent": ua,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": base,
+            "Referer": job.start_url,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=90, connect=12),
+            ) as s:
+                job.log(f"Opening {job.start_url}")
+                job.steps.append(job.start_url)
+                async with s.get(f"{base}/api/public/{slug}/{key}") as r0:
+                    if r0.status != 200:
+                        return False
+                    pub = await r0.json(content_type=None)
+                if not isinstance(pub, dict) or not pub.get("ok"):
+                    return False
+                route = pub.get("route") or {}
+                link_id = route.get("linkId") or f"{slug}_{key}"
+                wait = float(pub.get("waitSeconds") or 5)
+                mode = pub.get("verificationMode") or "SPONSOR"
+                sitekey = (pub.get("turnstileSiteKey") or "").strip()
+                job.log(f"⚡ LinkGate route {link_id} mode={mode} wait={wait:.0f}s")
+
+                turnstile_token = ""
+                if sitekey:
+                    try:
+                        turnstile_token = await self.solver.solve(
+                            sitekey, f"{base}/c/{slug}/{key}"
+                        ) or ""
+                        if turnstile_token:
+                            job.log("Turnstile solved for LinkGate")
+                    except Exception as e:
+                        job.log(f"LinkGate turnstile soft-fail: {e}")
+
+                async with s.post(
+                    f"{base}/api/visit/start",
+                    json={"linkId": link_id, "turnstileToken": turnstile_token or ""},
+                ) as r1:
+                    st = await r1.json(content_type=None)
+                visit = (st or {}).get("visitToken") or ""
+                if not visit:
+                    job.log(f"LinkGate visit/start failed: {st}")
+                    return False
+
+                async with s.post(
+                    f"{base}/api/visit/sponsor",
+                    json={"visitToken": visit},
+                ) as r2:
+                    sp = await r2.json(content_type=None)
+                if not isinstance(sp, dict):
+                    return False
+                visit = sp.get("visitToken") or visit
+                wait = float(
+                    sp.get("requiredWaitSeconds")
+                    or sp.get("waitSeconds")
+                    or wait
+                    or 5
+                )
+                sponsor_url = (sp.get("sponsorUrl") or "").strip()
+                if sponsor_url:
+                    job.log(f"LinkGate sponsor visit → {sponsor_url[:80]}")
+                    try:
+                        async with s.get(
+                            sponsor_url,
+                            allow_redirects=True,
+                            headers={"Referer": base + "/"},
+                        ) as rs:
+                            await rs.read()
+                    except Exception:
+                        pass
+
+                job.log(f"Page timer detected — running in real time (server-checked) ({wait:.1f}s)")
+                await asyncio.sleep(min(max(wait + 1.0, 3.0), 30.0))
+
+                async with s.post(
+                    f"{base}/api/visit/verify",
+                    json={"visitToken": visit},
+                ) as r3:
+                    vr = await r3.json(content_type=None)
+                redir = (vr or {}).get("redirectUrl") or ""
+                if not redir:
+                    job.log(f"LinkGate verify failed: {vr}")
+                    return False
+                job.log(f"⚡ LinkGate verified → {redir[:100]}")
+                job.steps.append(redir)
+
+                # Follow /go/ token → usually lands on real shortener (vplink etc.)
+                final_url = redir
+                try:
+                    async with s.get(
+                        redir,
+                        allow_redirects=True,
+                        headers={
+                            "Referer": base + "/",
+                            "Accept": "text/html,application/xhtml+xml,*/*",
+                        },
+                    ) as rg:
+                        final_url = str(rg.url)
+                        body = await rg.text()
+                    if final_url and final_url != redir:
+                        job.steps.append(final_url)
+                        job.log(f"⚡ LinkGate unwrapped → {final_url[:100]}")
+                    # If still on linkgate /go/, try JSON API
+                    if "/go/" in final_url and "pages.dev" in final_url:
+                        token = final_url.rstrip("/").split("/")[-1]
+                        try:
+                            async with s.get(
+                                f"{base}/api/go/{token}",
+                                headers={"Accept": "application/json"},
+                            ) as ra:
+                                gd = await ra.json(content_type=None)
+                            if isinstance(gd, dict):
+                                final_url = (
+                                    gd.get("url")
+                                    or gd.get("redirectUrl")
+                                    or gd.get("destination")
+                                    or final_url
+                                )
+                        except Exception:
+                            pass
+                    # meta refresh / JS location in body
+                    if body and ("pages.dev" in final_url or final_url == redir):
+                        m_loc = re.search(
+                            r'(?:window\.location|location\.href|content=["\']\d+;\s*url=)["\']?(https?://[^"\'\s>]+)',
+                            body,
+                            re.I,
+                        )
+                        if m_loc:
+                            final_url = m_loc.group(1)
+                except Exception:
+                    pass
+
+                if not final_url or final_url == job.start_url:
+                    return False
+                # Hand off to further shortener resolution if needed
+                if await self._finalize_or_unwrap_dest(
+                    job, final_url, job.start_url, "LinkGate API"
+                ):
+                    return True
+                # If finalize didn't consume (e.g. another shortener), set as dest for chain
+                if final_url.startswith("http"):
+                    job.dest = final_url
+                    job.reached_final = True
+                    return True
+        except Exception as e:
+            job.log(f"LinkGate direct error: {e}")
+        return False
+
+    async def _race_titan_proxies(self, job: Job, log) -> bool:
+        """titan-links.com 403-gates datacenter IPs. Race ROTATING residential proxies
+        (tunnel devices + configured proxy + shuffled free elite-HTTP feeds — a fresh random
+        IP set every run, get2short/alpha-links style) until one passes the gate, then run the
+        full LinkShort solve through that same proxy. No tunnel device required."""
+        import random as _random
+        m = re.match(r"^https?://(?:www\.)?titan-links\.com/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+        if not m:
+            return False
+        candidates: list[str] = []
+        for px in (*self._get_active_tunnel_proxies(), self.cfg.proxy or ""):
+            if px and px not in candidates:
+                candidates.append(px)
+        # free elite HTTP proxy feeds, shuffled => random new IPs each run
+        try:
+            import aiohttp
+            sp = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6, connect=4))
+            try:
+                for feed in (
+                    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=yes&anonymity=elite",
+                    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+                    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+                ):
+                    try:
+                        async def _f(fu=feed):
+                            async with sp.get(fu) as r:
+                                return await r.text()
+                        txt = await asyncio.wait_for(_f(), timeout=5.5)
+                        for ln in txt.splitlines():
+                            ln = ln.strip()
+                            if ln.count(":") == 1 and re.match(r"^\d+\.\d+\.\d+\.\d+:\d+$", ln):
+                                p = f"http://{ln}"
+                                if p not in candidates:
+                                    candidates.append(p)
+                    except Exception:
+                        pass
+            finally:
+                asyncio.create_task(sp.close())
+        except Exception:
+            pass
+        _random.shuffle(candidates)
+        if not candidates:
+            return False
+        log(f"🌐 titan-links.com IP-gated — racing {min(len(candidates), 60)} rotating residential proxies (fresh IPs)…")
+        sem = asyncio.Semaphore(24)
+        found = asyncio.Event()
+
+        async def _try_px(px: str):
+            if found.is_set():
+                return
+            async with sem:
+                if found.is_set():
+                    return
+                sub = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    ok = await self._try_titan_links_direct(sub, proxy_url=px, probe_only=True)
+                except Exception:
+                    ok = False
+                if not ok or found.is_set():
+                    return
+                # gate passed via this residential IP -> full solve through the same proxy
+                sub2 = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    if await self._try_titan_links_direct(sub2, proxy_url=px):
+                        if not job.result.done():
+                            job.result.set_result(sub2.result.result())
+                            job.method = sub2.method
+                        found.set()
+                except Exception:
+                    pass
+
+        tasks = [asyncio.create_task(_try_px(px)) for px in candidates[:60]]
+        try:
+            await asyncio.wait_for(found.wait(), timeout=75.0)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+        return found.is_set() and job.result.done()
+
+    async def _try_alphalinks_direct(self, job: Job) -> bool:
+        """Direct origin bypass for alpha-links.in / ai3.alpha-links.in (66.116.207.125).
+        Uses a fresh Indian mobile IP in CF-Connecting-IP per request and pre-warms
+        the 1st-view impression slot so the server never triggers reason=18 (google_required)
+        or reason=7 (3-paid-views-per-IP-per-24h cap).
+        """
+        m = re.match(r"^https?://(?:ai\d+\.)?alpha-links\.in/([A-Za-z0-9_-]+)", job.start_url)
+        if not m:
+            return False
+        alias = m.group(1)
+        if alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
+            return False
+
+        import html as _html
+        import random
+        import ssl
+        import aiohttp
+
+        class _AlphaOriginResolver(aiohttp.abc.AbstractResolver):
+            async def resolve(self, host, port=0, family=0):
+                ip = "66.116.207.125" if host in ("alpha-links.in", "ai3.alpha-links.in") else host
+                return [{
+                    "hostname": host,
+                    "host": ip,
+                    "port": port,
+                    "family": family,
+                    "proto": 0,
+                    "flags": 0,
+                }]
+
+            async def close(self):
+                pass
+
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        ua = (
+            "Mozilla/5.0 (Linux; Android 13; SM-S918B) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+        )
+        try:
+            for _alpha_attempt in range(2):
+                fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+                base_headers = {
+                    "User-Agent": ua,
+                    "CF-Connecting-IP": fake_ip,
+                    "X-Forwarded-For": fake_ip,
+                    "X-Real-IP": fake_ip,
+                    "CF-IPCountry": "IN",
+                }
+                conn = aiohttp.TCPConnector(resolver=_AlphaOriginResolver(), ssl=ssl_ctx)
+                # Pre-warm a disposable impression so 1st-impression Google OAuth gate (reason=18) is absorbed
+                if _alpha_attempt == 0:
+                    try:
+                        async with aiohttp.ClientSession(
+                            connector=conn,
+                            cookie_jar=aiohttp.DummyCookieJar(),
+                            headers=base_headers,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                            connector_owner=False,
+                        ) as s_warm:
+                            async with s_warm.get(f"https://alpha-links.in/{alias}", allow_redirects=False) as rw:
+                                if rw.status in (404, 410):
+                                    await conn.close()
+                                    raise BypassError(f"Shortener link not found (HTTP {rw.status} on alpha-links.in)")
+                    except BypassError:
+                        raise
+                    except Exception:
+                        pass
+
+                jar = aiohttp.CookieJar(unsafe=True)
+                async with aiohttp.ClientSession(
+                    connector=conn,
+                    cookie_jar=jar,
+                    headers=base_headers,
+                    timeout=aiohttp.ClientTimeout(total=50),
+                ) as s:
+                    if _alpha_attempt == 0:
+                        job.log(f"Opening {job.start_url}")
+                    async with s.get(f"https://alpha-links.in/{alias}", allow_redirects=False) as r1:
+                        if r1.status in (404, 410):
+                            raise BypassError(f"Shortener link not found (HTTP {r1.status} on alpha-links.in)")
+                        if r1.status not in (301, 302, 303, 307, 308):
+                            continue
+                    if _alpha_attempt == 0:
+                        job.steps.append(f"https://alpha-links.in/{alias}")
+                        job.log("⏳ Waiting 25s for alpha-links server timer (25s required)…")
+                    await asyncio.sleep(25.5)
+
+                    jar.update_cookies({"ab": "2"}, aiohttp.client.URL("https://ai3.alpha-links.in/"))
+                    ai3_url = f"https://ai3.alpha-links.in/{alias}"
+                    if _alpha_attempt == 0:
+                        job.log(f"⚡ Unwrapping alpha-links step chain → {ai3_url}")
+                    async with s.get(
+                        ai3_url,
+                        headers={"Referer": "https://work.jobsheel.com/"},
+                        allow_redirects=False,
+                    ) as r2:
+                        if r2.status != 200:
+                            continue
+                        html_txt = await r2.text()
+
+                    fm = re.search(r'<form[^>]*id="go-link"[^>]*>(.*?)</form>', html_txt, re.S | re.I)
+                    if not fm:
+                        continue
+                    fields = {}
+                    for tag in re.findall(r"<input[^>]+>", fm.group(1), re.I):
+                        nm = re.search(r'name="([^"]+)"', tag, re.I)
+                        vl = re.search(r'value="([^"]*)"', tag, re.I)
+                        if nm:
+                            fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+                    fields.setdefault("ai3_google_credential", "")
+
+                    if _alpha_attempt == 0:
+                        job.steps.append(ai3_url)
+                        job.log("Reached the shortener's final page")
+                        job.log("Page timer detected — running in real time (server-checked)")
+                    await asyncio.sleep(6.0)
+
+                    csrf_cookies = [c.value for c in jar if c.key == "csrfToken"]
+                    csrf = csrf_cookies[0] if csrf_cookies else ""
+                    go_headers = {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "X-CSRF-Token": csrf,
+                        "Origin": "https://ai3.alpha-links.in",
+                        "Referer": ai3_url,
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                    }
+                    if _alpha_attempt == 0:
+                        job.log("Submitting final form to fetch destination…")
+                    async with s.post(
+                        "https://ai3.alpha-links.in/links/go",
+                        data=fields,
+                        headers=go_headers,
+                    ) as r3:
+                        data = await r3.json(content_type=None)
+
+                    if isinstance(data, dict) and data.get("status") == "success" and data.get("url"):
+                        if await self._finalize_or_unwrap_dest(job, data["url"], ai3_url, "links/go API"):
+                            return True
+
+                    if isinstance(data, dict) and (
+                        data.get("status") == "google_required"
+                        or "google login is required" in str(data.get("message") or "").lower()
+                    ):
+                        cred = (os.environ.get("G2S_GOOGLE_CREDENTIAL") or "").strip()
+                        sa_json = getattr(self.cfg, "google_service_account", None) or os.environ.get("G2S_GOOGLE_SA_JSON")
+                        if not cred and sa_json:
+                            cid = str(data.get("google_client_id") or "")
+                            if cid:
+                                cred = await _mint_google_id_token(sa_json, cid) or ""
+                        if cred:
+                            fields["ai3_google_credential"] = cred
+                            async with s.post(
+                                "https://ai3.alpha-links.in/links/go",
+                                data=fields,
+                                headers=go_headers,
+                            ) as r4:
+                                data2 = await r4.json(content_type=None)
+                            if isinstance(data2, dict) and data2.get("status") == "success" and data2.get("url"):
+                                if await self._finalize_or_unwrap_dest(job, data2["url"], ai3_url, "links/go API"):
+                                    return True
+                        if _alpha_attempt == 0:
+                            continue
+                        raise BypassError(f"{job.base} requires Google Account Sign-In (OAuth) on this link")
+        except BypassError:
+            raise
+        except Exception:
+            pass
+        return False
+
+
+    async def _try_linkgate_direct(self, job: Job) -> bool:
+        """Direct API bypass for LinkGate (*.pages.dev/c/{slug}/{key}).
+
+        Flow:
+          GET /api/public/{slug}/{key}
+          POST /api/visit/start {linkId, turnstileToken}
+          POST /api/visit/sponsor {visitToken}  → sponsorUrl + waitSeconds
+          (optional GET sponsorUrl)
+          sleep requiredWaitSeconds
+          POST /api/visit/verify {visitToken} → redirectUrl
+          follow redirectUrl to final shortener (often vplink.in)
+        """
+        m = re.search(
+            r"https?://([^/]*pages\.dev)/c/([^/]+)/([^/?#]+)",
+            job.start_url or "",
+            re.I,
+        )
+        if not m:
+            return False
+        host, slug, key = m.group(1), m.group(2), m.group(3)
+        base = f"https://{host}"
+        import aiohttp
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        headers = {
+            "User-Agent": ua,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": base,
+            "Referer": job.start_url,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=90, connect=12),
+            ) as s:
+                job.log(f"Opening {job.start_url}")
+                job.steps.append(job.start_url)
+                async with s.get(f"{base}/api/public/{slug}/{key}") as r0:
+                    if r0.status != 200:
+                        return False
+                    pub = await r0.json(content_type=None)
+                if not isinstance(pub, dict) or not pub.get("ok"):
+                    return False
+                route = pub.get("route") or {}
+                link_id = route.get("linkId") or f"{slug}_{key}"
+                wait = float(pub.get("waitSeconds") or 5)
+                mode = pub.get("verificationMode") or "SPONSOR"
+                sitekey = (pub.get("turnstileSiteKey") or "").strip()
+                job.log(f"⚡ LinkGate route {link_id} mode={mode} wait={wait:.0f}s")
+
+                turnstile_token = ""
+                if sitekey:
+                    try:
+                        turnstile_token = await self.solver.solve(
+                            sitekey, f"{base}/c/{slug}/{key}"
+                        ) or ""
+                        if turnstile_token:
+                            job.log("Turnstile solved for LinkGate")
+                    except Exception as e:
+                        job.log(f"LinkGate turnstile soft-fail: {e}")
+
+                async with s.post(
+                    f"{base}/api/visit/start",
+                    json={"linkId": link_id, "turnstileToken": turnstile_token or ""},
+                ) as r1:
+                    st = await r1.json(content_type=None)
+                visit = (st or {}).get("visitToken") or ""
+                if not visit:
+                    job.log(f"LinkGate visit/start failed: {st}")
+                    return False
+
+                async with s.post(
+                    f"{base}/api/visit/sponsor",
+                    json={"visitToken": visit},
+                ) as r2:
+                    sp = await r2.json(content_type=None)
+                if not isinstance(sp, dict):
+                    return False
+                visit = sp.get("visitToken") or visit
+                wait = float(
+                    sp.get("requiredWaitSeconds")
+                    or sp.get("waitSeconds")
+                    or wait
+                    or 5
+                )
+                sponsor_url = (sp.get("sponsorUrl") or "").strip()
+                if sponsor_url:
+                    job.log(f"LinkGate sponsor visit → {sponsor_url[:80]}")
+                    try:
+                        async with s.get(
+                            sponsor_url,
+                            allow_redirects=True,
+                            headers={"Referer": base + "/"},
+                        ) as rs:
+                            await rs.read()
+                    except Exception:
+                        pass
+
+                job.log(f"Page timer detected — running in real time (server-checked) ({wait:.1f}s)")
+                await asyncio.sleep(min(max(wait + 1.0, 3.0), 30.0))
+
+                async with s.post(
+                    f"{base}/api/visit/verify",
+                    json={"visitToken": visit},
+                ) as r3:
+                    vr = await r3.json(content_type=None)
+                redir = (vr or {}).get("redirectUrl") or ""
+                if not redir:
+                    job.log(f"LinkGate verify failed: {vr}")
+                    return False
+                job.log(f"⚡ LinkGate verified → {redir[:100]}")
+                job.steps.append(redir)
+
+                # Follow /go/ token → usually lands on real shortener (vplink etc.)
+                final_url = redir
+                try:
+                    async with s.get(
+                        redir,
+                        allow_redirects=True,
+                        headers={
+                            "Referer": base + "/",
+                            "Accept": "text/html,application/xhtml+xml,*/*",
+                        },
+                    ) as rg:
+                        final_url = str(rg.url)
+                        body = await rg.text()
+                    if final_url and final_url != redir:
+                        job.steps.append(final_url)
+                        job.log(f"⚡ LinkGate unwrapped → {final_url[:100]}")
+                    # If still on linkgate /go/, try JSON API
+                    if "/go/" in final_url and "pages.dev" in final_url:
+                        token = final_url.rstrip("/").split("/")[-1]
+                        try:
+                            async with s.get(
+                                f"{base}/api/go/{token}",
+                                headers={"Accept": "application/json"},
+                            ) as ra:
+                                gd = await ra.json(content_type=None)
+                            if isinstance(gd, dict):
+                                final_url = (
+                                    gd.get("url")
+                                    or gd.get("redirectUrl")
+                                    or gd.get("destination")
+                                    or final_url
+                                )
+                        except Exception:
+                            pass
+                    # meta refresh / JS location in body
+                    if body and ("pages.dev" in final_url or final_url == redir):
+                        m_loc = re.search(
+                            r'(?:window\.location|location\.href|content=["\']\d+;\s*url=)["\']?(https?://[^"\'\s>]+)',
+                            body,
+                            re.I,
+                        )
+                        if m_loc:
+                            final_url = m_loc.group(1)
+                except Exception:
+                    pass
+
+                if not final_url or final_url == job.start_url:
+                    return False
+                # Hand off to further shortener resolution if needed
+                if await self._finalize_or_unwrap_dest(
+                    job, final_url, job.start_url, "LinkGate API"
+                ):
+                    return True
+                # If finalize didn't consume (e.g. another shortener), set as dest for chain
+                if final_url.startswith("http"):
+                    job.dest = final_url
+                    job.reached_final = True
+                    return True
+        except Exception as e:
+            job.log(f"LinkGate direct error: {e}")
+        return False
+
+    async def _race_titan_proxies(self, job: Job, log) -> bool:
+        """titan-links.com 403-gates datacenter IPs. Race ROTATING residential proxies
+        (tunnel devices + configured proxy + shuffled free elite-HTTP feeds — a fresh random
+        IP set every run, get2short/alpha-links style) until one passes the gate, then run the
+        full LinkShort solve through that same proxy. No tunnel device required."""
+        import random as _random
+        m = re.match(r"^https?://(?:www\.)?titan-links\.com/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+        if not m:
+            return False
+        candidates: list[str] = []
+        for px in (*self._get_active_tunnel_proxies(), self.cfg.proxy or ""):
+            if px and px not in candidates:
+                candidates.append(px)
+        # free elite HTTP proxy feeds, shuffled => random new IPs each run
+        try:
+            import aiohttp
+            sp = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6, connect=4))
+            try:
+                for feed in (
+                    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=yes&anonymity=elite",
+                    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+                    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+                ):
+                    try:
+                        async def _f(fu=feed):
+                            async with sp.get(fu) as r:
+                                return await r.text()
+                        txt = await asyncio.wait_for(_f(), timeout=5.5)
+                        for ln in txt.splitlines():
+                            ln = ln.strip()
+                            if ln.count(":") == 1 and re.match(r"^\d+\.\d+\.\d+\.\d+:\d+$", ln):
+                                p = f"http://{ln}"
+                                if p not in candidates:
+                                    candidates.append(p)
+                    except Exception:
+                        pass
+            finally:
+                asyncio.create_task(sp.close())
+        except Exception:
+            pass
+        _random.shuffle(candidates)
+        if not candidates:
+            return False
+        log(f"🌐 titan-links.com IP-gated — racing {min(len(candidates), 60)} rotating residential proxies (fresh IPs)…")
+        sem = asyncio.Semaphore(24)
+        found = asyncio.Event()
+
+        async def _try_px(px: str):
+            if found.is_set():
+                return
+            async with sem:
+                if found.is_set():
+                    return
+                sub = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    ok = await self._try_titan_links_direct(sub, proxy_url=px, probe_only=True)
+                except Exception:
+                    ok = False
+                if not ok or found.is_set():
+                    return
+                # gate passed via this residential IP -> full solve through the same proxy
+                sub2 = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    if await self._try_titan_links_direct(sub2, proxy_url=px):
+                        if not job.result.done():
+                            job.result.set_result(sub2.result.result())
+                            job.method = sub2.method
+                        found.set()
+                except Exception:
+                    pass
+
+        tasks = [asyncio.create_task(_try_px(px)) for px in candidates[:60]]
+        try:
+            await asyncio.wait_for(found.wait(), timeout=75.0)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+        return found.is_set() and job.result.done()
+
+    async def _try_alphalinks_direct(self, job: Job) -> bool:
+        """Direct origin bypass for alpha-links.in / ai3.alpha-links.in (66.116.207.125).
+        Uses a fresh Indian mobile IP in CF-Connecting-IP per request and pre-warms
+        the 1st-view impression slot so the server never triggers reason=18 (google_required)
+        or reason=7 (3-paid-views-per-IP-per-24h cap).
+        """
+        m = re.match(r"^https?://(?:ai\d+\.)?alpha-links\.in/([A-Za-z0-9_-]+)", job.start_url)
+        if not m:
+            return False
+        alias = m.group(1)
+        if alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
+            return False
+
+        import html as _html
+        import random
+        import ssl
+        import aiohttp
+
+        class _AlphaOriginResolver(aiohttp.abc.AbstractResolver):
+            async def resolve(self, host, port=0, family=0):
+                ip = "66.116.207.125" if host in ("alpha-links.in", "ai3.alpha-links.in") else host
+                return [{
+                    "hostname": host,
+                    "host": ip,
+                    "port": port,
+                    "family": family,
+                    "proto": 0,
+                    "flags": 0,
+                }]
+
+            async def close(self):
+                pass
+
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        ua = (
+            "Mozilla/5.0 (Linux; Android 13; SM-S918B) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+        )
+        try:
+            for _alpha_attempt in range(2):
+                fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+                base_headers = {
+                    "User-Agent": ua,
+                    "CF-Connecting-IP": fake_ip,
+                    "X-Forwarded-For": fake_ip,
+                    "X-Real-IP": fake_ip,
+                    "CF-IPCountry": "IN",
+                }
+                conn = aiohttp.TCPConnector(resolver=_AlphaOriginResolver(), ssl=ssl_ctx)
+                # Pre-warm a disposable impression so 1st-impression Google OAuth gate (reason=18) is absorbed
+                if _alpha_attempt == 0:
+                    try:
+                        async with aiohttp.ClientSession(
+                            connector=conn,
+                            cookie_jar=aiohttp.DummyCookieJar(),
+                            headers=base_headers,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                            connector_owner=False,
+                        ) as s_warm:
+                            async with s_warm.get(f"https://alpha-links.in/{alias}", allow_redirects=False) as rw:
+                                if rw.status in (404, 410):
+                                    await conn.close()
+                                    raise BypassError(f"Shortener link not found (HTTP {rw.status} on alpha-links.in)")
+                    except BypassError:
+                        raise
+                    except Exception:
+                        pass
+
+                jar = aiohttp.CookieJar(unsafe=True)
+                async with aiohttp.ClientSession(
+                    connector=conn,
+                    cookie_jar=jar,
+                    headers=base_headers,
+                    timeout=aiohttp.ClientTimeout(total=50),
+                ) as s:
+                    if _alpha_attempt == 0:
+                        job.log(f"Opening {job.start_url}")
+                    async with s.get(f"https://alpha-links.in/{alias}", allow_redirects=False) as r1:
+                        if r1.status in (404, 410):
+                            raise BypassError(f"Shortener link not found (HTTP {r1.status} on alpha-links.in)")
+                        if r1.status not in (301, 302, 303, 307, 308):
+                            continue
+                    if _alpha_attempt == 0:
+                        job.steps.append(f"https://alpha-links.in/{alias}")
+                        job.log("⏳ Waiting 25s for alpha-links server timer (25s required)…")
+                    await asyncio.sleep(25.5)
+
+                    jar.update_cookies({"ab": "2"}, aiohttp.client.URL("https://ai3.alpha-links.in/"))
+                    ai3_url = f"https://ai3.alpha-links.in/{alias}"
+                    if _alpha_attempt == 0:
+                        job.log(f"⚡ Unwrapping alpha-links step chain → {ai3_url}")
+                    async with s.get(
+                        ai3_url,
+                        headers={"Referer": "https://work.jobsheel.com/"},
+                        allow_redirects=False,
+                    ) as r2:
+                        if r2.status != 200:
+                            continue
+                        html_txt = await r2.text()
+
+                    fm = re.search(r'<form[^>]*id="go-link"[^>]*>(.*?)</form>', html_txt, re.S | re.I)
+                    if not fm:
+                        continue
+                    fields = {}
+                    for tag in re.findall(r"<input[^>]+>", fm.group(1), re.I):
+                        nm = re.search(r'name="([^"]+)"', tag, re.I)
+                        vl = re.search(r'value="([^"]*)"', tag, re.I)
+                        if nm:
+                            fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+                    fields.setdefault("ai3_google_credential", "")
+
+                    if _alpha_attempt == 0:
+                        job.steps.append(ai3_url)
+                        job.log("Reached the shortener's final page")
+                        job.log("Page timer detected — running in real time (server-checked)")
+                    await asyncio.sleep(6.0)
+
+                    csrf_cookies = [c.value for c in jar if c.key == "csrfToken"]
+                    csrf = csrf_cookies[0] if csrf_cookies else ""
+                    go_headers = {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "X-CSRF-Token": csrf,
+                        "Origin": "https://ai3.alpha-links.in",
+                        "Referer": ai3_url,
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                    }
+                    if _alpha_attempt == 0:
+                        job.log("Submitting final form to fetch destination…")
+                    async with s.post(
+                        "https://ai3.alpha-links.in/links/go",
+                        data=fields,
+                        headers=go_headers,
+                    ) as r3:
+                        data = await r3.json(content_type=None)
+
+                    if isinstance(data, dict) and data.get("status") == "success" and data.get("url"):
+                        if await self._finalize_or_unwrap_dest(job, data["url"], ai3_url, "links/go API"):
+                            return True
+
+                    if isinstance(data, dict) and (
+                        data.get("status") == "google_required"
+                        or "google login is required" in str(data.get("message") or "").lower()
+                    ):
+                        cred = (os.environ.get("G2S_GOOGLE_CREDENTIAL") or "").strip()
+                        sa_json = getattr(self.cfg, "google_service_account", None) or os.environ.get("G2S_GOOGLE_SA_JSON")
+                        if not cred and sa_json:
+                            cid = str(data.get("google_client_id") or "")
+                            if cid:
+                                cred = await _mint_google_id_token(sa_json, cid) or ""
+                        if cred:
+                            fields["ai3_google_credential"] = cred
+                            async with s.post(
+                                "https://ai3.alpha-links.in/links/go",
+                                data=fields,
+                                headers=go_headers,
+                            ) as r4:
+                                data2 = await r4.json(content_type=None)
+                            if isinstance(data2, dict) and data2.get("status") == "success" and data2.get("url"):
+                                if await self._finalize_or_unwrap_dest(job, data2["url"], ai3_url, "links/go API"):
+                                    return True
+                        if _alpha_attempt == 0:
+                            continue
+                        raise BypassError(f"{job.base} requires Google Account Sign-In (OAuth) on this link")
+        except BypassError:
+            raise
+        except Exception:
+            pass
+        return False
+
+
+    async def _try_linkgate_direct(self, job: Job) -> bool:
+        """Direct API bypass for LinkGate (*.pages.dev/c/{slug}/{key}).
+
+        Flow:
+          GET /api/public/{slug}/{key}
+          POST /api/visit/start {linkId, turnstileToken}
+          POST /api/visit/sponsor {visitToken}  → sponsorUrl + waitSeconds
+          (optional GET sponsorUrl)
+          sleep requiredWaitSeconds
+          POST /api/visit/verify {visitToken} → redirectUrl
+          follow redirectUrl to final shortener (often vplink.in)
+        """
+        m = re.search(
+            r"https?://([^/]*pages\.dev)/c/([^/]+)/([^/?#]+)",
+            job.start_url or "",
+            re.I,
+        )
+        if not m:
+            return False
+        host, slug, key = m.group(1), m.group(2), m.group(3)
+        base = f"https://{host}"
+        import aiohttp
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        headers = {
+            "User-Agent": ua,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": base,
+            "Referer": job.start_url,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=90, connect=12),
+            ) as s:
+                job.log(f"Opening {job.start_url}")
+                job.steps.append(job.start_url)
+                async with s.get(f"{base}/api/public/{slug}/{key}") as r0:
+                    if r0.status != 200:
+                        return False
+                    pub = await r0.json(content_type=None)
+                if not isinstance(pub, dict) or not pub.get("ok"):
+                    return False
+                route = pub.get("route") or {}
+                link_id = route.get("linkId") or f"{slug}_{key}"
+                wait = float(pub.get("waitSeconds") or 5)
+                mode = pub.get("verificationMode") or "SPONSOR"
+                sitekey = (pub.get("turnstileSiteKey") or "").strip()
+                job.log(f"⚡ LinkGate route {link_id} mode={mode} wait={wait:.0f}s")
+
+                turnstile_token = ""
+                if sitekey:
+                    try:
+                        turnstile_token = await self.solver.solve(
+                            sitekey, f"{base}/c/{slug}/{key}"
+                        ) or ""
+                        if turnstile_token:
+                            job.log("Turnstile solved for LinkGate")
+                    except Exception as e:
+                        job.log(f"LinkGate turnstile soft-fail: {e}")
+
+                async with s.post(
+                    f"{base}/api/visit/start",
+                    json={"linkId": link_id, "turnstileToken": turnstile_token or ""},
+                ) as r1:
+                    st = await r1.json(content_type=None)
+                visit = (st or {}).get("visitToken") or ""
+                if not visit:
+                    job.log(f"LinkGate visit/start failed: {st}")
+                    return False
+
+                async with s.post(
+                    f"{base}/api/visit/sponsor",
+                    json={"visitToken": visit},
+                ) as r2:
+                    sp = await r2.json(content_type=None)
+                if not isinstance(sp, dict):
+                    return False
+                visit = sp.get("visitToken") or visit
+                wait = float(
+                    sp.get("requiredWaitSeconds")
+                    or sp.get("waitSeconds")
+                    or wait
+                    or 5
+                )
+                sponsor_url = (sp.get("sponsorUrl") or "").strip()
+                if sponsor_url:
+                    job.log(f"LinkGate sponsor visit → {sponsor_url[:80]}")
+                    try:
+                        async with s.get(
+                            sponsor_url,
+                            allow_redirects=True,
+                            headers={"Referer": base + "/"},
+                        ) as rs:
+                            await rs.read()
+                    except Exception:
+                        pass
+
+                job.log(f"Page timer detected — running in real time (server-checked) ({wait:.1f}s)")
+                await asyncio.sleep(min(max(wait + 1.0, 3.0), 30.0))
+
+                async with s.post(
+                    f"{base}/api/visit/verify",
+                    json={"visitToken": visit},
+                ) as r3:
+                    vr = await r3.json(content_type=None)
+                redir = (vr or {}).get("redirectUrl") or ""
+                if not redir:
+                    job.log(f"LinkGate verify failed: {vr}")
+                    return False
+                job.log(f"⚡ LinkGate verified → {redir[:100]}")
+                job.steps.append(redir)
+
+                # Follow /go/ token → usually lands on real shortener (vplink etc.)
+                final_url = redir
+                try:
+                    async with s.get(
+                        redir,
+                        allow_redirects=True,
+                        headers={
+                            "Referer": base + "/",
+                            "Accept": "text/html,application/xhtml+xml,*/*",
+                        },
+                    ) as rg:
+                        final_url = str(rg.url)
+                        body = await rg.text()
+                    if final_url and final_url != redir:
+                        job.steps.append(final_url)
+                        job.log(f"⚡ LinkGate unwrapped → {final_url[:100]}")
+                    # If still on linkgate /go/, try JSON API
+                    if "/go/" in final_url and "pages.dev" in final_url:
+                        token = final_url.rstrip("/").split("/")[-1]
+                        try:
+                            async with s.get(
+                                f"{base}/api/go/{token}",
+                                headers={"Accept": "application/json"},
+                            ) as ra:
+                                gd = await ra.json(content_type=None)
+                            if isinstance(gd, dict):
+                                final_url = (
+                                    gd.get("url")
+                                    or gd.get("redirectUrl")
+                                    or gd.get("destination")
+                                    or final_url
+                                )
+                        except Exception:
+                            pass
+                    # meta refresh / JS location in body
+                    if body and ("pages.dev" in final_url or final_url == redir):
+                        m_loc = re.search(
+                            r'(?:window\.location|location\.href|content=["\']\d+;\s*url=)["\']?(https?://[^"\'\s>]+)',
+                            body,
+                            re.I,
+                        )
+                        if m_loc:
+                            final_url = m_loc.group(1)
+                except Exception:
+                    pass
+
+                if not final_url or final_url == job.start_url:
+                    return False
+                # Hand off to further shortener resolution if needed
+                if await self._finalize_or_unwrap_dest(
+                    job, final_url, job.start_url, "LinkGate API"
+                ):
+                    return True
+                # If finalize didn't consume (e.g. another shortener), set as dest for chain
+                if final_url.startswith("http"):
+                    job.dest = final_url
+                    job.reached_final = True
+                    return True
+        except Exception as e:
+            job.log(f"LinkGate direct error: {e}")
+        return False
+
+    async def _race_titan_proxies(self, job: Job, log) -> bool:
+        """titan-links.com 403-gates datacenter IPs. Race ROTATING residential proxies
+        (tunnel devices + configured proxy + shuffled free elite-HTTP feeds — a fresh random
+        IP set every run, get2short/alpha-links style) until one passes the gate, then run the
+        full LinkShort solve through that same proxy. No tunnel device required."""
+        import random as _random
+        m = re.match(r"^https?://(?:www\.)?titan-links\.com/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+        if not m:
+            return False
+        candidates: list[str] = []
+        for px in (*self._get_active_tunnel_proxies(), self.cfg.proxy or ""):
+            if px and px not in candidates:
+                candidates.append(px)
+        # free elite HTTP proxy feeds, shuffled => random new IPs each run
+        try:
+            import aiohttp
+            sp = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6, connect=4))
+            try:
+                for feed in (
+                    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=yes&anonymity=elite",
+                    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+                    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+                ):
+                    try:
+                        async def _f(fu=feed):
+                            async with sp.get(fu) as r:
+                                return await r.text()
+                        txt = await asyncio.wait_for(_f(), timeout=5.5)
+                        for ln in txt.splitlines():
+                            ln = ln.strip()
+                            if ln.count(":") == 1 and re.match(r"^\d+\.\d+\.\d+\.\d+:\d+$", ln):
+                                p = f"http://{ln}"
+                                if p not in candidates:
+                                    candidates.append(p)
+                    except Exception:
+                        pass
+            finally:
+                asyncio.create_task(sp.close())
+        except Exception:
+            pass
+        _random.shuffle(candidates)
+        if not candidates:
+            return False
+        log(f"🌐 titan-links.com IP-gated — racing {min(len(candidates), 60)} rotating residential proxies (fresh IPs)…")
+        sem = asyncio.Semaphore(24)
+        found = asyncio.Event()
+
+        async def _try_px(px: str):
+            if found.is_set():
+                return
+            async with sem:
+                if found.is_set():
+                    return
+                sub = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    ok = await self._try_titan_links_direct(sub, proxy_url=px, probe_only=True)
+                except Exception:
+                    ok = False
+                if not ok or found.is_set():
+                    return
+                # gate passed via this residential IP -> full solve through the same proxy
+                sub2 = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    if await self._try_titan_links_direct(sub2, proxy_url=px):
+                        if not job.result.done():
+                            job.result.set_result(sub2.result.result())
+                            job.method = sub2.method
+                        found.set()
+                except Exception:
+                    pass
+
+        tasks = [asyncio.create_task(_try_px(px)) for px in candidates[:60]]
+        try:
+            await asyncio.wait_for(found.wait(), timeout=75.0)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+        return found.is_set() and job.result.done()
+
+    async def _try_alphalinks_direct(self, job: Job) -> bool:
+        """Direct origin bypass for alpha-links.in / ai3.alpha-links.in (66.116.207.125).
+        Uses a fresh Indian mobile IP in CF-Connecting-IP per request and pre-warms
+        the 1st-view impression slot so the server never triggers reason=18 (google_required)
+        or reason=7 (3-paid-views-per-IP-per-24h cap).
+        """
+        m = re.match(r"^https?://(?:ai\d+\.)?alpha-links\.in/([A-Za-z0-9_-]+)", job.start_url)
+        if not m:
+            return False
+        alias = m.group(1)
+        if alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
+            return False
+
+        import html as _html
+        import random
+        import ssl
+        import aiohttp
+
+        class _AlphaOriginResolver(aiohttp.abc.AbstractResolver):
+            async def resolve(self, host, port=0, family=0):
+                ip = "66.116.207.125" if host in ("alpha-links.in", "ai3.alpha-links.in") else host
+                return [{
+                    "hostname": host,
+                    "host": ip,
+                    "port": port,
+                    "family": family,
+                    "proto": 0,
+                    "flags": 0,
+                }]
+
+            async def close(self):
+                pass
+
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        ua = (
+            "Mozilla/5.0 (Linux; Android 13; SM-S918B) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+        )
+        try:
+            for _alpha_attempt in range(2):
+                fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+                base_headers = {
+                    "User-Agent": ua,
+                    "CF-Connecting-IP": fake_ip,
+                    "X-Forwarded-For": fake_ip,
+                    "X-Real-IP": fake_ip,
+                    "CF-IPCountry": "IN",
+                }
+                conn = aiohttp.TCPConnector(resolver=_AlphaOriginResolver(), ssl=ssl_ctx)
+                # Pre-warm a disposable impression so 1st-impression Google OAuth gate (reason=18) is absorbed
+                if _alpha_attempt == 0:
+                    try:
+                        async with aiohttp.ClientSession(
+                            connector=conn,
+                            cookie_jar=aiohttp.DummyCookieJar(),
+                            headers=base_headers,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                            connector_owner=False,
+                        ) as s_warm:
+                            async with s_warm.get(f"https://alpha-links.in/{alias}", allow_redirects=False) as rw:
+                                if rw.status in (404, 410):
+                                    await conn.close()
+                                    raise BypassError(f"Shortener link not found (HTTP {rw.status} on alpha-links.in)")
+                    except BypassError:
+                        raise
+                    except Exception:
+                        pass
+
+                jar = aiohttp.CookieJar(unsafe=True)
+                async with aiohttp.ClientSession(
+                    connector=conn,
+                    cookie_jar=jar,
+                    headers=base_headers,
+                    timeout=aiohttp.ClientTimeout(total=50),
+                ) as s:
+                    if _alpha_attempt == 0:
+                        job.log(f"Opening {job.start_url}")
+                    async with s.get(f"https://alpha-links.in/{alias}", allow_redirects=False) as r1:
+                        if r1.status in (404, 410):
+                            raise BypassError(f"Shortener link not found (HTTP {r1.status} on alpha-links.in)")
+                        if r1.status not in (301, 302, 303, 307, 308):
+                            continue
+                    if _alpha_attempt == 0:
+                        job.steps.append(f"https://alpha-links.in/{alias}")
+                        job.log("⏳ Waiting 25s for alpha-links server timer (25s required)…")
+                    await asyncio.sleep(25.5)
+
+                    jar.update_cookies({"ab": "2"}, aiohttp.client.URL("https://ai3.alpha-links.in/"))
+                    ai3_url = f"https://ai3.alpha-links.in/{alias}"
+                    if _alpha_attempt == 0:
+                        job.log(f"⚡ Unwrapping alpha-links step chain → {ai3_url}")
+                    async with s.get(
+                        ai3_url,
+                        headers={"Referer": "https://work.jobsheel.com/"},
+                        allow_redirects=False,
+                    ) as r2:
+                        if r2.status != 200:
+                            continue
+                        html_txt = await r2.text()
+
+                    fm = re.search(r'<form[^>]*id="go-link"[^>]*>(.*?)</form>', html_txt, re.S | re.I)
+                    if not fm:
+                        continue
+                    fields = {}
+                    for tag in re.findall(r"<input[^>]+>", fm.group(1), re.I):
+                        nm = re.search(r'name="([^"]+)"', tag, re.I)
+                        vl = re.search(r'value="([^"]*)"', tag, re.I)
+                        if nm:
+                            fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+                    fields.setdefault("ai3_google_credential", "")
+
+                    if _alpha_attempt == 0:
+                        job.steps.append(ai3_url)
+                        job.log("Reached the shortener's final page")
+                        job.log("Page timer detected — running in real time (server-checked)")
+                    await asyncio.sleep(6.0)
+
+                    csrf_cookies = [c.value for c in jar if c.key == "csrfToken"]
+                    csrf = csrf_cookies[0] if csrf_cookies else ""
+                    go_headers = {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "X-CSRF-Token": csrf,
+                        "Origin": "https://ai3.alpha-links.in",
+                        "Referer": ai3_url,
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                    }
+                    if _alpha_attempt == 0:
+                        job.log("Submitting final form to fetch destination…")
+                    async with s.post(
+                        "https://ai3.alpha-links.in/links/go",
+                        data=fields,
+                        headers=go_headers,
+                    ) as r3:
+                        data = await r3.json(content_type=None)
+
+                    if isinstance(data, dict) and data.get("status") == "success" and data.get("url"):
+                        if await self._finalize_or_unwrap_dest(job, data["url"], ai3_url, "links/go API"):
+                            return True
+
+                    if isinstance(data, dict) and (
+                        data.get("status") == "google_required"
+                        or "google login is required" in str(data.get("message") or "").lower()
+                    ):
+                        cred = (os.environ.get("G2S_GOOGLE_CREDENTIAL") or "").strip()
+                        sa_json = getattr(self.cfg, "google_service_account", None) or os.environ.get("G2S_GOOGLE_SA_JSON")
+                        if not cred and sa_json:
+                            cid = str(data.get("google_client_id") or "")
+                            if cid:
+                                cred = await _mint_google_id_token(sa_json, cid) or ""
+                        if cred:
+                            fields["ai3_google_credential"] = cred
+                            async with s.post(
+                                "https://ai3.alpha-links.in/links/go",
+                                data=fields,
+                                headers=go_headers,
+                            ) as r4:
+                                data2 = await r4.json(content_type=None)
+                            if isinstance(data2, dict) and data2.get("status") == "success" and data2.get("url"):
+                                if await self._finalize_or_unwrap_dest(job, data2["url"], ai3_url, "links/go API"):
+                                    return True
+                        if _alpha_attempt == 0:
+                            continue
+                        raise BypassError(f"{job.base} requires Google Account Sign-In (OAuth) on this link")
+        except BypassError:
+            raise
+        except Exception:
+            pass
+        return False
+
+
+    async def _try_linkgate_direct(self, job: Job) -> bool:
+        """Direct API bypass for LinkGate (*.pages.dev/c/{slug}/{key}).
+
+        Flow:
+          GET /api/public/{slug}/{key}
+          POST /api/visit/start {linkId, turnstileToken}
+          POST /api/visit/sponsor {visitToken}  → sponsorUrl + waitSeconds
+          (optional GET sponsorUrl)
+          sleep requiredWaitSeconds
+          POST /api/visit/verify {visitToken} → redirectUrl
+          follow redirectUrl to final shortener (often vplink.in)
+        """
+        m = re.search(
+            r"https?://([^/]*pages\.dev)/c/([^/]+)/([^/?#]+)",
+            job.start_url or "",
+            re.I,
+        )
+        if not m:
+            return False
+        host, slug, key = m.group(1), m.group(2), m.group(3)
+        base = f"https://{host}"
+        import aiohttp
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        headers = {
+            "User-Agent": ua,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": base,
+            "Referer": job.start_url,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with aiohttp.ClientSession(
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=90, connect=12),
+            ) as s:
+                job.log(f"Opening {job.start_url}")
+                job.steps.append(job.start_url)
+                async with s.get(f"{base}/api/public/{slug}/{key}") as r0:
+                    if r0.status != 200:
+                        return False
+                    pub = await r0.json(content_type=None)
+                if not isinstance(pub, dict) or not pub.get("ok"):
+                    return False
+                route = pub.get("route") or {}
+                link_id = route.get("linkId") or f"{slug}_{key}"
+                wait = float(pub.get("waitSeconds") or 5)
+                mode = pub.get("verificationMode") or "SPONSOR"
+                sitekey = (pub.get("turnstileSiteKey") or "").strip()
+                job.log(f"⚡ LinkGate route {link_id} mode={mode} wait={wait:.0f}s")
+
+                turnstile_token = ""
+                if sitekey:
+                    try:
+                        turnstile_token = await self.solver.solve(
+                            sitekey, f"{base}/c/{slug}/{key}"
+                        ) or ""
+                        if turnstile_token:
+                            job.log("Turnstile solved for LinkGate")
+                    except Exception as e:
+                        job.log(f"LinkGate turnstile soft-fail: {e}")
+
+                async with s.post(
+                    f"{base}/api/visit/start",
+                    json={"linkId": link_id, "turnstileToken": turnstile_token or ""},
+                ) as r1:
+                    st = await r1.json(content_type=None)
+                visit = (st or {}).get("visitToken") or ""
+                if not visit:
+                    job.log(f"LinkGate visit/start failed: {st}")
+                    return False
+
+                async with s.post(
+                    f"{base}/api/visit/sponsor",
+                    json={"visitToken": visit},
+                ) as r2:
+                    sp = await r2.json(content_type=None)
+                if not isinstance(sp, dict):
+                    return False
+                visit = sp.get("visitToken") or visit
+                wait = float(
+                    sp.get("requiredWaitSeconds")
+                    or sp.get("waitSeconds")
+                    or wait
+                    or 5
+                )
+                sponsor_url = (sp.get("sponsorUrl") or "").strip()
+                if sponsor_url:
+                    job.log(f"LinkGate sponsor visit → {sponsor_url[:80]}")
+                    try:
+                        async with s.get(
+                            sponsor_url,
+                            allow_redirects=True,
+                            headers={"Referer": base + "/"},
+                        ) as rs:
+                            await rs.read()
+                    except Exception:
+                        pass
+
+                job.log(f"Page timer detected — running in real time (server-checked) ({wait:.1f}s)")
+                await asyncio.sleep(min(max(wait + 1.0, 3.0), 30.0))
+
+                async with s.post(
+                    f"{base}/api/visit/verify",
+                    json={"visitToken": visit},
+                ) as r3:
+                    vr = await r3.json(content_type=None)
+                redir = (vr or {}).get("redirectUrl") or ""
+                if not redir:
+                    job.log(f"LinkGate verify failed: {vr}")
+                    return False
+                job.log(f"⚡ LinkGate verified → {redir[:100]}")
+                job.steps.append(redir)
+
+                # Follow /go/ token → usually lands on real shortener (vplink etc.)
+                final_url = redir
+                try:
+                    async with s.get(
+                        redir,
+                        allow_redirects=True,
+                        headers={
+                            "Referer": base + "/",
+                            "Accept": "text/html,application/xhtml+xml,*/*",
+                        },
+                    ) as rg:
+                        final_url = str(rg.url)
+                        body = await rg.text()
+                    if final_url and final_url != redir:
+                        job.steps.append(final_url)
+                        job.log(f"⚡ LinkGate unwrapped → {final_url[:100]}")
+                    # If still on linkgate /go/, try JSON API
+                    if "/go/" in final_url and "pages.dev" in final_url:
+                        token = final_url.rstrip("/").split("/")[-1]
+                        try:
+                            async with s.get(
+                                f"{base}/api/go/{token}",
+                                headers={"Accept": "application/json"},
+                            ) as ra:
+                                gd = await ra.json(content_type=None)
+                            if isinstance(gd, dict):
+                                final_url = (
+                                    gd.get("url")
+                                    or gd.get("redirectUrl")
+                                    or gd.get("destination")
+                                    or final_url
+                                )
+                        except Exception:
+                            pass
+                    # meta refresh / JS location in body
+                    if body and ("pages.dev" in final_url or final_url == redir):
+                        m_loc = re.search(
+                            r'(?:window\.location|location\.href|content=["\']\d+;\s*url=)["\']?(https?://[^"\'\s>]+)',
+                            body,
+                            re.I,
+                        )
+                        if m_loc:
+                            final_url = m_loc.group(1)
+                except Exception:
+                    pass
+
+                if not final_url or final_url == job.start_url:
+                    return False
+                # Hand off to further shortener resolution if needed
+                if await self._finalize_or_unwrap_dest(
+                    job, final_url, job.start_url, "LinkGate API"
+                ):
+                    return True
+                # If finalize didn't consume (e.g. another shortener), set as dest for chain
+                if final_url.startswith("http"):
+                    job.dest = final_url
+                    job.reached_final = True
+                    return True
+        except Exception as e:
+            job.log(f"LinkGate direct error: {e}")
+        return False
+
+    async def _race_titan_proxies(self, job: Job, log) -> bool:
+        """titan-links.com 403-gates datacenter IPs. Race ROTATING residential proxies
+        (tunnel devices + configured proxy + shuffled free elite-HTTP feeds — a fresh random
+        IP set every run, get2short/alpha-links style) until one passes the gate, then run the
+        full LinkShort solve through that same proxy. No tunnel device required."""
+        import random as _random
+        m = re.match(r"^https?://(?:www\.)?titan-links\.com/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+        if not m:
+            return False
+        candidates: list[str] = []
+        for px in (*self._get_active_tunnel_proxies(), self.cfg.proxy or ""):
+            if px and px not in candidates:
+                candidates.append(px)
+        # free elite HTTP proxy feeds, shuffled => random new IPs each run
+        try:
+            import aiohttp
+            sp = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6, connect=4))
+            try:
+                for feed in (
+                    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=yes&anonymity=elite",
+                    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+                    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+                ):
+                    try:
+                        async def _f(fu=feed):
+                            async with sp.get(fu) as r:
+                                return await r.text()
+                        txt = await asyncio.wait_for(_f(), timeout=5.5)
+                        for ln in txt.splitlines():
+                            ln = ln.strip()
+                            if ln.count(":") == 1 and re.match(r"^\d+\.\d+\.\d+\.\d+:\d+$", ln):
+                                p = f"http://{ln}"
+                                if p not in candidates:
+                                    candidates.append(p)
+                    except Exception:
+                        pass
+            finally:
+                asyncio.create_task(sp.close())
+        except Exception:
+            pass
+        _random.shuffle(candidates)
+        if not candidates:
+            return False
+        log(f"🌐 titan-links.com IP-gated — racing {min(len(candidates), 60)} rotating residential proxies (fresh IPs)…")
+        sem = asyncio.Semaphore(24)
+        found = asyncio.Event()
+
+        async def _try_px(px: str):
+            if found.is_set():
+                return
+            async with sem:
+                if found.is_set():
+                    return
+                sub = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    ok = await self._try_titan_links_direct(sub, proxy_url=px, probe_only=True)
+                except Exception:
+                    ok = False
+                if not ok or found.is_set():
+                    return
+                # gate passed via this residential IP -> full solve through the same proxy
+                sub2 = Job(job.start_url, job.log_cb if hasattr(job, "log_cb") else log, asyncio.get_running_loop())
+                try:
+                    if await self._try_titan_links_direct(sub2, proxy_url=px):
+                        if not job.result.done():
+                            job.result.set_result(sub2.result.result())
+                            job.method = sub2.method
+                        found.set()
+                except Exception:
+                    pass
+
+        tasks = [asyncio.create_task(_try_px(px)) for px in candidates[:60]]
+        try:
+            await asyncio.wait_for(found.wait(), timeout=75.0)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+        return found.is_set() and job.result.done()
+
+    async def _titan_ver_gate(self, s, job, gate_url, rkw, hdrs_fn, jar, start, alias) -> bool:
+        """Try a ver./vipcpm-style gate URL directly: follow redirects; if a page has
+        form#go-link, wait counter_value and POST {origin}/links/go -> {"url": dest}.
+        This is where the REAL destination (e.g. mega.nz) comes from."""
+        import re as _re
+        from urllib.parse import urljoin as _uj
+        cur = gate_url
+        html = ""
+        _retries = 0
+        for _g in range(12):
+            try:
+                async with s.get(cur, headers=hdrs_fn({"Referer": start}), allow_redirects=False, **rkw) as r:
+                    body = await r.text()
+                    loc = r.headers.get("Location") or ""
+                    job.log(f"  ver-gate GET {short(cur, 70)} -> {r.status} len={len(body)} loc={short(loc, 80)}")
+                    if r.status in (301, 302, 303, 307, 308) and loc:
+                        _abs = _uj(str(r.url), loc)
+                        # gate intermittently 307s into the ad network — retry the GATE itself
+                        if _is_titan_adnet(_abs) and host_of(cur) in ("server.titan-links.com", "ver.titan-links.com", "titan-links.com") and _retries < 10:
+                            _retries += 1
+                            job.log(f"  gate {short(cur, 50)} bounced to ad net ({host_of(_abs)}) — retry {_retries}/10")
+                            await asyncio.sleep(3.0)
+                            cur = gate_url
+                            continue
+                        cur = _abs
+                        continue
+                    if r.status == 200:
+                        html = body
+                        cur = str(r.url)
+                        fm = _re.search(r"<form[^>]*id=[\"']go-link[\"'][^>]*>(.*?)</form>", html, _re.S | _re.I)
+                        if fm:
+                            break
+                        # maybe JS redirect on this page
+                        ml = _re.search(r"window\.location(?:\.href|\.replace)?\s*(?:=|\()\s*[\"']?(https?://[^\"'\s<>)]+)", html, _re.I)
+                        if ml:
+                            cur = _uj(cur, ml.group(1))
+                            continue
+            except Exception as e:
+                job.log(f"  ver-gate error on {short(cur, 60)}: {e}")
+                # origin box rate-limits bursts — retry with spacing instead of giving up
+                if _retries < 10:
+                    _retries += 1
+                    await asyncio.sleep(3.0)
+                    continue
+                return False
+        fm = _re.search(r"<form[^>]*id=[\"']go-link[\"'][^>]*>(.*?)</form>", html or "", _re.S | _re.I)
+        if not fm:
+            return False
+        import html as _html
+        fields = {}
+        for inp in _re.findall(r"<input[^>]+>", fm.group(1), _re.I):
+            nm = _re.search(r"name=[\"']([^\"']+)[\"']", inp, _re.I)
+            vl = _re.search(r"value=[\"']([^\"']*)[\"']", inp, _re.I)
+            if nm:
+                fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+        cm = _re.search(r"\"counter_value\"\s*:\s*(\d+)", html or "")
+        counter = int(cm.group(1)) if cm else 5
+        gp = _re.match(r"(https?://[^/]+)", cur)
+        gate_origin = gp.group(1) if gp else cur
+        fam = _re.search(r"<form[^>]*id=[\"']go-link[\"'][^>]*action=[\"']([^\"']+)[\"']", html, _re.I)
+        go_post_url = _uj(cur, fam.group(1)) if fam else f"{gate_origin}/links/go"
+        csrf = next((c.value for c in jar if c.key == "csrfToken"), fields.get("_csrfToken", ""))
+        job.log(f"  ver-gate form on {short(cur, 70)} counter={counter} POST {short(go_post_url, 70)}")
+        job.url_since = time.monotonic()
+        await asyncio.sleep(min(max(counter + 1.0, 3.0), 30.0))
+        go_hdrs = hdrs_fn({
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRF-Token": csrf,
+            "Origin": gate_origin,
+            "Referer": cur,
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+        })
+        try:
+            async with s.post(go_post_url, data=fields, headers=go_hdrs, **rkw) as r3:
+                txt = await r3.text()
+                job.log(f"  ver-gate /links/go -> {r3.status} {txt[:160]}")
+                if r3.status == 200:
+                    try:
+                        data = json.loads(txt)
+                    except Exception:
+                        data = {}
+                    dest = str((data or {}).get("url") or "").strip()
+                    if dest.startswith(("http://", "https://")) and not _re.search(r"google\.[a-z.]+/search", dest, _re.I) and not _is_titan_detour(dest):
+                        job.steps.append(cur)
+                        job.set_result(dest, "titan ver-gate links/go")
+                        job.log(f"✔ Destination (ver gate) → {short(dest)}")
+                        return True
+        except Exception as e:
+            job.log(f"  ver-gate POST error: {e}")
+        return False
+
+    async def _try_titan_links_direct(self, job: Job, proxy_url: str | None = None, probe_only: bool = False) -> bool:
+        """Direct aiohttp bypass for titan-links.com (LinkShort cloud_theme 6.6.3, alpha-links family).
+
+          titan-links.com/ALIAS  ->  interstitial "Get Link" page (counter_value seconds)
+          -> form#go-link POST titan-links.com/links/go  (X-CSRF-Token + _csrfToken + ad_form_data)
+          -> {"status":"success","url":...}
+
+        NOTE: titan-links.com hard-blocks hosting/datacenter IPs on /ALIAS with
+        403 "Access Blocked — Hosting / Data Center connection detected". Pass proxy_url
+        (rotating residential proxy) to get past the gate — same trick as get2short/alpha-links
+        origin pinning, but with a fresh residential IP instead.
+        """
+        m = re.match(r"^https?://(?:www\.)?titan-links\.com/([A-Za-z0-9_-]+)", job.start_url, re.I)
+        if not m:
+            return False
+        alias = m.group(1)
+        if alias.lower() in ("links", "auth", "admin", "member", "pages", "api", "shorten"):
+            return False
+
+        import aiohttp
+        import html as _html
+
+        base = "https://titan-links.com"
+        start = f"{base}/{alias}"
+        if proxy_url is None:
+            job.steps.append(start)
+
+        def _hdrs(extra=None):
+            h = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": base + "/",
+            }
+            if extra:
+                h.update(extra)
+            return h
+
+        import random as _random
+        import ssl as _ssl
+        fake_ip = f"49.36.{_random.randint(10, 240)}.{_random.randint(10, 240)}"  # IN residential-looking
+        try:
+            conn = None
+            if proxy_url:
+                rkw = {"proxy": proxy_url, "ssl": False}
+            else:
+                rkw = self._aiohttp_req_kwargs()
+                if not rkw.get("proxy"):
+                    # ORIGIN PIN (get2short/alpha-links style): titan-links.com is hosted on
+                    # 66.116.207.125 (SPF-leaked, same box as get2short/alpha-links). Connect
+                    # straight to the LiteSpeed origin with Host header + fake residential
+                    # CF-Connecting-IP — the Cloudflare edge ASN gate never sees us. No tunnel!
+                    class _TitanOriginResolver(aiohttp.abc.AbstractResolver):
+                        async def resolve(self, host, port=0, family=0):
+                            ip = ("66.116.207.125" if host in (
+                                "titan-links.com", "www.titan-links.com",
+                                "finance.apnamaterials.site", "apnamaterials.site", "www.apnamaterials.site",
+                                "ver.titan-links.com",
+                                "server.titan-links.com",
+                            ) else host)
+                            return [{"hostname": host, "host": ip, "port": port,
+                                     "family": family, "proto": 0, "flags": 0}]
+
+                        async def close(self):
+                            pass
+
+                    ssl_ctx = _ssl.create_default_context()
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = _ssl.CERT_NONE
+                    conn = aiohttp.TCPConnector(resolver=_TitanOriginResolver(), ssl=ssl_ctx)
+                    rkw = {}
+            jar = aiohttp.CookieJar(unsafe=True)
+            timeout = aiohttp.ClientTimeout(total=45)
+            base_hdrs = _hdrs()
+            if conn is not None:
+                base_hdrs.update({
+                    "CF-Connecting-IP": fake_ip,
+                    "X-Forwarded-For": fake_ip,
+                    "X-Real-IP": fake_ip,
+                    "CF-IPCountry": "IN",
+                })
+            async with aiohttp.ClientSession(cookie_jar=jar, timeout=timeout, headers=base_hdrs,
+                                             connector=conn) as s:
+                # 0) FAST PATH: the real "Get Link" gate on the ver. subdomain / vipcpm
+                #    (ver.titan-links.com/?v=ALIAS) returns the TRUE destination via
+                #    POST /links/go — try it before walking the jobsheel ad detours.
+                if not probe_only:
+                    def _gate_hdrs(extra=None):
+                        h = _hdrs(extra)
+                        # VERIFIED LIVE: server.titan-links.com/<alias> serves the go-link gate
+                        # page ONLY when Referer is an odiadance.com ad page (else 307 -> ad net)
+                        h["Referer"] = "https://sub.odiadance.com/"
+                        return h
+                    for _gurl in (f"https://server.titan-links.com/{alias}",
+                                  f"https://server.titan-links.com/?v={alias}",
+                                  f"https://ver.titan-links.com/?v={alias}",
+                                  f"https://ver.titan-links.com/{alias}",
+                                  f"https://vipcpm.in/?v={alias}"):
+                        try:
+                            if await self._titan_ver_gate(s, job, _gurl, rkw, _gate_hdrs, jar, start, alias):
+                                return True
+                        except Exception as _e:
+                            job.log(f"  ver-gate attempt error: {_e}")
+                # 1) open the short link. 403 => datacenter gate -> bail out
+                async with s.get(start, headers=_hdrs(), allow_redirects=False, **rkw) as r1:
+                    body1 = await r1.text()
+                    cur_url = str(r1.url)
+                    loc1 = r1.headers.get("Location") or ""
+                    job.log(f"Opening {start} -> {r1.status} {short(cur_url)}")
+                    if r1.status == 403 or "access blocked" in body1.lower():
+                        if probe_only:
+                            return False
+                        job.log("⚠ titan-links.com Access Blocked (datacenter IP) — needs origin pin / residential proxy; handing off")
+                        return False
+                    if probe_only:
+                        return True  # this proxy/IP passes the gate
+                    if r1.status == 404:
+                        job.fatal = f"Shortener link not found (404 on titan-links.com/{alias})"
+                        return False
+                    if loc1:
+                        from urllib.parse import urljoin
+                        cur_url = _unwrap_google_url(urljoin(cur_url, loc1))
+
+                # 2) walk the redirect/ad-gate chain (google url-wrappers unwrapped, blogs, timers)
+                html_final = body1
+                final_url = cur_url
+                seen_urls = {start}
+                apna_retry = 0
+                _last_js = None
+                _decoy_rehits = 0
+                _loop_exit = "range-exhausted"
+                for _hop in range(18):
+                    _gt = re.search(r"<title>(.*?)</title>", html_final or "", re.S | re.I)
+                    _gf = bool(re.search(r"<form[^>]*id=[\"']go-link[\"']", html_final or "", re.I))
+                    job.log(f"  hop{_hop}: {short(final_url, 70)} html={len(html_final or '')} golink={_gf} title={(_gt.group(1).strip()[:40] if _gt else '')}")
+                    # blog article pages sometimes link onward to the ver./vipcpm gate — follow it
+                    _fh = host_of(final_url) or ""
+                    if (html_final and any(_fh == _g or _fh.endswith("." + _g) for _g in ("makeloans.in", "apnamaterials.site"))
+                            and not _gf and f"art:{_fh}" not in seen_urls):
+                        _nx = re.findall(r"href=[\"'](https?://(?:ver\.)?titan-links\.com[^\"']*|https?://(?:www\.)?vipcpm\.in[^\"']*)[\"']", html_final, re.I)
+                        if not _nx:
+                            # article has no direct gate href — probe the ver./vipcpm gate
+                            # with the alias directly (user's phone shows the gate at
+                            # ver.titan-links.com -> Get Link -> mega.nz destination)
+                            _mentions = sorted(set(re.findall(r"(?:ver\.titan-links\.com|vipcpm\.in)[^\s\"'<>)]*", html_final, re.I)))[:5]
+                            if _mentions:
+                                job.log(f"  article mentions: {short(str(_mentions), 120)}")
+                            _nx = [f"https://server.titan-links.com/{alias}",
+                                   f"https://ver.titan-links.com/?v={alias}",
+                                   f"https://ver.titan-links.com/{alias}",
+                                   f"https://vipcpm.in/?v={alias}"]
+                            job.log(f"  probing ver./vipcpm gate with alias {alias}…")
+                        if _nx:
+                            seen_urls.add(f"art:{_fh}")
+                            job.log(f"  article page links onward → {short(_nx[0], 70)}")
+                            final_url = _nx[0]
+                            html_final = ""
+                            continue
+                    # google site-search decoy emitted by the jobsheel fake hop — NOT a
+                    # destination; reset to the gate php and re-hit it (cookies are set now)
+                    if _last_js and _decoy_rehits < 4 and re.search(r"google\.[a-z.]+/search", final_url or "", re.I):
+                        _decoy_rehits += 1
+                        job.log("⚠ google site-search decoy from fake hop — re-hitting the jobsheel gate php…")
+                        final_url = _last_js
+                        html_final = ""
+                        seen_urls.discard(final_url)
+                        seen_urls.discard(f"js2:{final_url}")
+                        continue
+                    # work.jobsheel.com fake hop: first hit sets cookies + decoy JS, second hit 302s real
+                    if "jobsheel.com" in final_url and ".php" in final_url and f"js2:{final_url}" not in seen_urls:
+                        seen_urls.add(f"js2:{final_url}")
+                        _last_js = final_url
+                        async with s.get(final_url, headers=_hdrs({"Referer": start}), allow_redirects=False, **rkw) as rj:
+                            bj = await rj.text()
+                            locj = rj.headers.get("Location") or ""
+                            if locj:
+                                from urllib.parse import urljoin as _uj
+                                final_url = _unwrap_google_url(_uj(str(rj.url), locj))
+                                html_final = ""
+                                continue
+                    # destination reached? (google /search decoys rejected by is_dest too)
+                    if final_url not in seen_urls and job.is_dest(final_url) and not re.search(r"google\.[a-z.]+/search", final_url or "", re.I) and not _is_titan_detour(final_url):
+                        job.steps.append(final_url)
+                        job.set_result(final_url, "titan redirect")
+                        return True
+                    seen_urls.add(final_url)
+                    fm = re.search(r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>', html_final, re.S | re.I)
+                    if fm:
+                        job.log(f"  go-link gate form found on {short(final_url, 70)}")
+                        _loop_exit = "golink-form"
+                        break
+                    # meta refresh / JS location?
+                    m_loc = re.search(r'(?:window\.location(?:\.href|\.replace)?\s*(?:=|\()\s*|content="\d+;\s*url=)["\']?(https?://[^"\'\s<>)]+)', html_final, re.I)
+                    if m_loc and not fm:
+                        _murl = _unwrap_google_url(m_loc.group(1))
+                        if _last_js and _decoy_rehits < 4 and re.search(r"google\.[a-z.]+/search", _murl, re.I):
+                            # JS/meta redirect points at the fake-hop decoy — re-hit the gate
+                            # php directly; with cookies set it returns the REAL 302
+                            _decoy_rehits += 1
+                            async with s.get(_last_js, headers=_hdrs({"Referer": start}), allow_redirects=False, **rkw) as rj2:
+                                await rj2.text()
+                                _l2 = rj2.headers.get("Location") or ""
+                                _u2 = str(rj2.url)
+                            if _l2:
+                                from urllib.parse import urljoin as _uj2
+                                final_url = _unwrap_google_url(_uj2(_u2, _l2))
+                                html_final = ""
+                                continue
+                        final_url = _murl
+                        async with s.get(final_url, headers=_hdrs({"Referer": start}), allow_redirects=False, **rkw) as rh:
+                            if rh.status in (301, 302, 303, 307, 308):
+                                from urllib.parse import urljoin
+                                final_url = _unwrap_google_url(urljoin(str(rh.url), rh.headers.get("Location") or ""))
+                                html_final = ""
+                                continue
+                            html_final = await rh.text()
+                            final_url = str(rh.url)
+                            if rh.status == 403:
+                                return False
+                            continue
+                    if fm:
+                        break
+                    # no form, no redirect: GET the current url and inspect
+                    try:
+                        async with s.get(final_url, headers=_hdrs({"Referer": start}), allow_redirects=False, **rkw) as r2:
+                            if r2.status in (301, 302, 303, 307, 308):
+                                from urllib.parse import urljoin
+                                final_url = _unwrap_google_url(urljoin(str(r2.url), r2.headers.get("Location") or ""))
+                                html_final = ""
+                                continue
+                            html_final = await r2.text()
+                            final_url = str(r2.url)
+                            if r2.status == 403 or "access blocked" in html_final.lower():
+                                if "apnamaterials.site" in final_url and apna_retry < 6:
+                                    # transient "Access Temporarily Restricted" bot flag:
+                                    # rotate the fake residential IP + short backoff, retry same URL
+                                    apna_retry += 1
+                                    fake_ip = f"49.3{6 + apna_retry}.{10 + apna_retry * 17}.{20 + apna_retry * 31}"
+                                    await s.close() if False else None
+                                    import asyncio as _aio
+                                    await _aio.sleep(min(2.0 * apna_retry, 8.0))
+                                    _h = _hdrs({"Referer": start, "CF-Connecting-IP": fake_ip,
+                                                "X-Forwarded-For": fake_ip, "X-Real-IP": fake_ip,
+                                                "CF-IPCountry": "IN"})
+                                    async with s.get(final_url, headers=_h, allow_redirects=False, **rkw) as r2b:
+                                        if r2b.status in (301, 302, 303, 307, 308):
+                                            from urllib.parse import urljoin
+                                            final_url = _unwrap_google_url(urljoin(str(r2b.url), r2b.headers.get("Location") or ""))
+                                            html_final = ""
+                                            continue
+                                        html_final = await r2b.text()
+                                        final_url = str(r2b.url)
+                                        if r2b.status == 403:
+                                            continue
+                                    continue
+                                if "access blocked" in html_final.lower():
+                                    return False
+                                return False
+                    except Exception as _ex:
+                        _loop_exit = f"tail-get-error: {_ex}"
+                        break
+
+                job.log(f"  hop loop exit ({_loop_exit}) at {short(final_url, 70)} html={len(html_final or '')}")
+                # 3) parse counter + go-link form
+                counter = 5
+                cm = re.search(r'"counter_value"\s*:\s*(\d+)', html_final)
+                if cm:
+                    counter = int(cm.group(1))
+                fm = re.search(r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>', html_final, re.S | re.I)
+                if not fm:
+                    # maybe final page is a plain redirect to destination (unwrap google wrappers)
+                    cand = _unwrap_google_url(final_url)
+                    if cand != start and job.is_dest(cand) and not _is_titan_detour(cand):
+                        job.set_result(cand, "titan redirect")
+                        return True
+                    if cand != start and job.is_dest(_unwrap_google_url(cur_url)) and not _is_titan_detour(_unwrap_google_url(cur_url)):
+                        job.set_result(_unwrap_google_url(cur_url), "titan redirect")
+                        return True
+                    if "apnamaterials.site" in final_url or "makeloans.in" in final_url:
+                        # ad-gate chain: real flow continues on the blog host (WP safelink) —
+                        # hand the ORIGINAL titan url to the browser worker, which follows
+                        # 307 → gate → google wrapper → blog → safelink → /links/go.
+                        job.log(f"⚠ titan ad-gate chain at {short(final_url)} — browser worker will drive the blog safelink")
+                        return False
+                from urllib.parse import urljoin as _uj3
+                _gp = urlparse(final_url)
+                gate_origin = f"{_gp.scheme}://{_gp.netloc}"
+                fam = re.search(r"<form[^>]*id=[\"']go-link[\"'][^>]*action=[\"']([^\"']+)[\"']", html_final, re.I)
+                go_post_url = _uj3(final_url, fam.group(1)) if fam else f"{gate_origin}/links/go"
+                job.log(f"  gate origin {gate_origin} — POST {short(go_post_url, 70)}")
+                fields = {}
+                for inp in re.findall(r"<input[^>]+>", fm.group(1), re.I):
+                    nm = re.search(r'name=["\']([^"\']+)["\']', inp, re.I)
+                    vl = re.search(r'value=["\']([^"\']*)["\']', inp, re.I)
+                    if nm:
+                        fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+
+                csrf = next((c.value for c in jar if c.key == "csrfToken"), fields.get("_csrfToken", ""))
+                job.log(f"Reached titan-links final page — waiting {counter}s server timer…")
+                job.url_since = time.monotonic()
+                await asyncio.sleep(min(max(counter + 1.0, 5.0), 30.0))
+
+                go_hdrs = _hdrs({
+                    "X-Requested-With": "XMLHttpRequest",
+                    "X-CSRF-Token": csrf,
+                    "Origin": gate_origin,
+                    "Referer": final_url,
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                })
+                async with s.post(go_post_url, data=fields, headers=go_hdrs, **rkw) as r3:
+                    txt = await r3.text()
+                    job.log(f"titan /links/go -> {r3.status} {txt[:120]}")
+                    if r3.status == 403:
+                        return False  # gated -> browser/tunnel
+                    try:
+                        data = json.loads(txt)
+                    except Exception:
+                        data = {}
+                    dest = str((data or {}).get("url") or "").strip()
+                    if dest.startswith(("http://", "https://")):
+                        job.steps.append(final_url)
+                        job.log(f"✔ Destination found → {short(dest)}")
+                        if await self._finalize_or_unwrap_dest(job, dest, final_url, "titan links/go API"):
+                            return True
+                        job.set_result(dest, "titan links/go API")
+                        return True
+        except BypassError:
+            raise
+        except Exception as e:
+            import traceback as _tb
+            job.log(f"titan-links direct error: {e} | {_tb.format_exc()[-500:]}")
+        return False
+
     async def _try_vipshort_direct(self, job: Job) -> bool:
-        """Direct lock-free aiohttp bypass for vipshort.in / link.vipshort.in / m.vipshort.in (~8s)."""
+        """Direct aiohttp bypass for vipshort.in.
+
+        Modern flow (geniousguide WP-safelink):
+          vipshort.in/ALIAS → link.vipshort.in/ALIAS → geniousguide.com/?go=ALIAS
+          → repeated <form id=landing|wpsafelink-landing> POSTs with ~20s delay
+          → eventually m.vipshort.in final page OR safelink_redirect destination.
+
+        Legacy flow still supported: blog POST vip1=4 → m.vipshort.in → /links/go.
+        """
         m = re.match(
             r"^https?://(?:(?:link|m)\.)?vipshort\.in/([A-Za-z0-9_-]+)",
             job.start_url,
@@ -3816,71 +5597,230 @@ class Bypasser:
         if alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
             return False
 
+        import base64
         import html as _html
+        import json as _json
         import aiohttp
+
+        def _decode_wpsafe_tok(b64: str) -> dict:
+            try:
+                padded = (b64 or "") + "=" * ((4 - len(b64 or "") % 4) % 4)
+                return _json.loads(base64.b64decode(padded).decode("utf-8", "ignore"))
+            except Exception:
+                return {}
 
         ua = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         )
+        fake_ip = f"49.{__import__('random').randint(15, 44)}.{__import__('random').randint(10, 240)}.{__import__('random').randint(10, 240)}"
+        base_headers = {
+            "User-Agent": ua,
+            "Accept-Language": "en-US,en;q=0.9",
+            "CF-Connecting-IP": fake_ip,
+            "X-Forwarded-For": fake_ip,
+            "X-Real-IP": fake_ip,
+            "CF-IPCountry": "IN",
+        }
         jar = aiohttp.CookieJar(unsafe=True)
         try:
             async with aiohttp.ClientSession(
                 cookie_jar=jar,
-                headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
-                timeout=aiohttp.ClientTimeout(total=30, connect=10),
+                headers=base_headers,
+                timeout=aiohttp.ClientTimeout(total=200, connect=12),
             ) as s:
-                job.log(f"Opening {job.start_url}")
-                async with s.get(f"https://link.vipshort.in/{alias}", allow_redirects=True) as r0:
+                job.log(f"Opening https://vipshort.in/{alias}")
+                job.log(f"🔄 Fresh session IP headers for this vipshort.in link ({fake_ip})")
+                # Prefer apex → follows 302 to link → geniousguide/?go=
+                async with s.get(
+                    f"https://vipshort.in/{alias}",
+                    allow_redirects=True,
+                    headers={"Referer": "https://www.google.com/"},
+                ) as r0:
                     if r0.status == 404:
-                        raise BypassError("Shortener link not found (404 on link.vipshort.in)")
-                    b0 = await r0.text()
-                    u0 = str(r0.url)
-                job.steps.append(f"https://link.vipshort.in/{alias}")
+                        raise BypassError("Shortener link not found (404 on vipshort.in)")
+                    cur_html = await r0.text()
+                    cur_url = str(r0.url)
+                job.steps.append(f"https://vipshort.in/{alias}")
+                if "geniousguide" in cur_url or "newwpsafelink" in cur_html or "wpsafelink" in cur_html:
+                    job.log(f"⚡ Vipshort WP-safelink chain on {host_of(cur_url) or 'blog'}…")
+                else:
+                    # Legacy: try link.vipshort then vip1=4
+                    async with s.get(f"https://link.vipshort.in/{alias}", allow_redirects=True) as r_link:
+                        cur_html = await r_link.text()
+                        cur_url = str(r_link.url)
 
-                m_js = re.search(
-                    r'(?:window\.location(?:\.href|\.replace)?\s*(?:=|\()\s*|url=)["\']?(https?://[^"\'\s<>)]+)',
-                    b0,
-                    re.I,
-                )
-                blog_url = _html.unescape(m_js.group(1)) if m_js else u0
-                if "google." in blog_url:
-                    from urllib.parse import parse_qs, unquote
-                    q = parse_qs(urlparse(blog_url).query)
-                    raw_q = unquote((q.get("q") or q.get("url") or [blog_url])[0]).strip()
-                    m_u = re.search(r"https?://[^\s\"'<>]+", raw_q, re.I)
-                    if m_u:
-                        blog_url = m_u.group(0)
+                seen_actions: set[str] = set()
+                max_hops = 10
+                for hop in range(max_hops):
+                    # 1) Landing / wpsafelink-landing form with newwpsafelink token
+                    fm = re.search(
+                        r'<form[^>]*id=["\'](?:landing|wpsafelink-landing|wpsafelink-next)["\'][^>]*action=["\']([^"\']+)["\'][^>]*>(.*?)</form>',
+                        cur_html,
+                        re.S | re.I,
+                    )
+                    action = body = None
+                    if fm:
+                        action, body = _html.unescape(fm.group(1)), fm.group(2)
                     else:
-                        m_dom = re.search(r"([a-z0-9-]+(?:\.[a-z0-9-]+)+)", raw_q, re.I)
-                        if m_dom:
-                            blog_url = f"https://{m_dom.group(1).lower()}/"
-                p_blog = urlparse(blog_url)
-                if not p_blog.hostname or "vipshort.in" in p_blog.hostname:
-                    return False
-                blog_root = f"{p_blog.scheme}://{p_blog.hostname}/"
-                job.steps.append(blog_root)
-                job.log(f"⚡ Unwrapping vipshort step chain on {p_blog.hostname} via vip1=4…")
+                        for cand in re.finditer(r"<form([^>]*)>(.*?)</form>", cur_html, re.S | re.I):
+                            if "newwpsafelink" in cand.group(0):
+                                am = re.search(r'action=["\']([^"\']+)["\']', cand.group(1), re.I)
+                                if am:
+                                    action = _html.unescape(am.group(1))
+                                    body = cand.group(2)
+                                    break
 
-                async with s.get(blog_url, headers={"Referer": "https://www.google.com/"}) as r1:
-                    await r1.text()
-                async with s.post(
-                    blog_root,
-                    data={"vip1": "4"},
-                    headers={"Referer": blog_url, "Origin": blog_root.rstrip("/")},
-                ) as r2:
-                    b2 = await r2.text()
+                    if action and body:
+                        fields: dict[str, str] = {}
+                        for inp in re.findall(r"<input[^>]+>", body, re.I):
+                            nm = re.search(r'name=["\']([^"\']+)["\']', inp, re.I)
+                            vl = re.search(r'value=["\']([^"\']*)["\']', inp, re.I)
+                            if nm:
+                                fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+                        fields.setdefault("humanverification", "1")
+                        info = _decode_wpsafe_tok(fields.get("newwpsafelink") or "")
+                        delay = float(info.get("delay") or 20)
+                        # Publisher destination embedded in token (when set)
+                        dest_hint = (
+                            info.get("safelink")
+                            or info.get("second_safelink_url")
+                            or info.get("url")
+                            or ""
+                        )
+                        if isinstance(dest_hint, str) and dest_hint.startswith("http"):
+                            if await self._finalize_or_unwrap_dest(
+                                job, dest_hint.strip(), cur_url, "vipshort wpsafelink token"
+                            ):
+                                return True
+                        # Detect infinite rotation of the same action targets
+                        act_key = action.split("?")[0].rstrip("/")
+                        if act_key in seen_actions and hop >= 3:
+                            # Try linkr if present, else give up on this path
+                            linkr = (info.get("linkr") or "").strip()
+                            if linkr and "safelink_redirect=" in linkr:
+                                async with s.get(linkr, headers={"Referer": cur_url}, allow_redirects=True) as rl:
+                                    bl = await rl.text()
+                                    ul = str(rl.url)
+                                # decode token for real dest
+                                m_tok = re.search(r"safelink_redirect=([A-Za-z0-9_=-]+)", ul + " " + bl, re.I)
+                                if m_tok:
+                                    info2 = _decode_wpsafe_tok(m_tok.group(1))
+                                    dest = (
+                                        info2.get("safelink")
+                                        or info2.get("second_safelink_url")
+                                        or info2.get("url")
+                                        or ""
+                                    )
+                                    if isinstance(dest, str) and dest.startswith("http"):
+                                        if await self._finalize_or_unwrap_dest(
+                                            job, dest, cur_url, "vipshort wpsafelink redirect"
+                                        ):
+                                            return True
+                            # If token still has null destination after several hops, the alias
+                            # itself has no destination configured on the publisher blog.
+                            linkr_info = _decode_wpsafe_tok(
+                                ((info.get("linkr") or "").split("safelink_redirect=")[-1] or "")
+                            ) if info.get("linkr") else {}
+                            if not (info.get("safelink") or linkr_info.get("safelink")):
+                                job.log(
+                                    "Vipshort WP-safelink token has safelink=null — "
+                                    "publisher destination is not set for this alias"
+                                )
+                                raise BypassError(
+                                    "Vipshort destination not configured (WP-safelink token safelink=null). "
+                                    "This shortlink has no final URL on the blog side."
+                                )
+                            job.log("Vipshort WP-safelink loop detected — trying legacy vip1=4 exit…")
+                            break
+                        seen_actions.add(act_key)
 
-                m_v = re.search(r"https?://m\.vipshort\.in/[^\s\"'<>]+", b2, re.I)
-                if not m_v:
+                        job.log(
+                            f"Submitting safelink form → {action[:90]} "
+                            f"(server timer {delay:.0f}s)"
+                        )
+                        await asyncio.sleep(min(max(delay + 0.8, 5.0), 22.0))
+                        async with s.post(
+                            action,
+                            data=fields,
+                            headers={
+                                "Referer": cur_url,
+                                "Origin": f"{urlparse(action).scheme}://{urlparse(action).hostname}",
+                                "Content-Type": "application/x-www-form-urlencoded",
+                            },
+                            allow_redirects=True,
+                        ) as rh:
+                            cur_html = await rh.text()
+                            cur_url = str(rh.url)
+                        job.steps.append(cur_url)
+                        # Destination embedded?
+                        m_v = re.search(r"https?://m\.vipshort\.in/[^\s\"'<>]*?slt=[^\s\"'<>]+", cur_html, re.I) \
+                            or re.search(r"https?://m\.vipshort\.in/[^\s\"'<>]+", cur_html, re.I)
+                        if m_v:
+                            cur_url = m_v.group(0).replace("&amp;", "&")
+                            job.vipshort_m_url = cur_url
+                            cur_html = ""
+                            break
+                        if "go-link" in cur_html and "m.vipshort" in (host_of(cur_url) or ""):
+                            break
+                        continue
+
+                    # 2) Legacy vip1=4 on current blog host
+                    blog_host = host_of(cur_url) or ""
+                    if blog_host and "vipshort" not in blog_host:
+                        job.vipshort_blog_host = blog_host
+                    if blog_host and "vipshort" not in blog_host and blog_host != "geniousguide.com":
+                        # WP-safelink blog other than geniousguide (e.g. blog.hindumantra.net):
+                        # the aiohttp hop loop just rotates articles and the slt token is
+                        # single-use/Referer-bound — hand off to the browser worker instead.
+                        job.browser_handoff_url = f"https://vipshort.in/{alias}"
+                        job.log(f"⚡ Safelink blog is {blog_host} (not geniousguide) — handing off to browser solver…")
+                        return False
+                    if blog_host and "vipshort" not in blog_host:
+                        blog_root = f"{urlparse(cur_url).scheme}://{blog_host}/"
+                        job.log(f"⚡ Unwrapping vipshort step chain on {blog_host} via vip1=4…")
+                        async with s.post(
+                            blog_root,
+                            data={"vip1": "4"},
+                            headers={"Referer": cur_url, "Origin": blog_root.rstrip("/")},
+                        ) as r2:
+                            b2 = await r2.text()
+                        m_v = re.search(r"https?://m\.vipshort\.in/[^\s\"'<>]+", b2, re.I)
+                        if m_v:
+                            cur_url = m_v.group(0).replace("&amp;", "&")
+                            cur_html = ""
+                            break
+                        # if vip1 returned another article URL, follow once
+                        m_next = re.search(
+                            rf'https?://{re.escape(blog_host)}/[^\s"\'<>]+',
+                            b2,
+                            re.I,
+                        )
+                        if m_next and m_next.group(0) != cur_url:
+                            cur_url = m_next.group(0).replace("&amp;", "&")
+                            async with s.get(cur_url, headers={"Referer": blog_root}) as rn:
+                                cur_html = await rn.text()
+                            continue
+                    break
+
+                # Final: m.vipshort.go-link
+                m_url = None
+                if "m.vipshort.in" in (cur_url or ""):
+                    m_url = cur_url
+                else:
+                    m_v = re.search(r"https?://m\.vipshort\.in/[^\s\"'<>]+", cur_html or "", re.I)
+                    if m_v:
+                        m_url = m_v.group(0).replace("&amp;", "&")
+                if not m_url:
                     return False
-                m_url = m_v.group(0).replace("&amp;", "&")
+
                 jar.update_cookies({"ab": "2"}, aiohttp.client.URL("https://m.vipshort.in/"))
-                async with s.get(m_url, headers={"Referer": blog_root}, allow_redirects=False) as r3:
+                _blog_ref = getattr(job, "vipshort_blog_host", None)
+                _blog_ref = f"https://{_blog_ref}/" if _blog_ref and "vipshort" not in _blog_ref else "https://geniousguide.com/"
+                async with s.get(m_url, headers={"Referer": _blog_ref}, allow_redirects=False) as r3:
                     if r3.status != 200:
                         return False
                     b3 = await r3.text()
-
                 fm = re.search(r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>', b3, re.S | re.I)
                 if not fm:
                     return False
@@ -3897,7 +5837,7 @@ class Bypasser:
                 await asyncio.sleep(5.5)
 
                 csrf = next(
-                    (c.value for c in jar if c.key == "csrfToken" and "vipshort" in c["domain"]),
+                    (c.value for c in jar if c.key == "csrfToken" and "vipshort" in (c["domain"] or "")),
                     fields.get("_csrfToken", ""),
                 )
                 go_hdrs = {
@@ -3912,7 +5852,7 @@ class Bypasser:
                 async with s.post("https://m.vipshort.in/links/go", data=fields, headers=go_hdrs) as r4:
                     d4 = await r4.json(content_type=None)
                 if isinstance(d4, dict) and d4.get("status") == "success" and d4.get("url"):
-                    dest = d4["url"]
+                    dest = str(d4["url"]).strip()
                     if await self._finalize_or_unwrap_dest(job, dest, m_url, "links/go API"):
                         return True
         except BypassError:
@@ -4061,23 +6001,23 @@ class Bypasser:
         return False
 
     async def _try_fast_adlinkfly_direct(self, job: Job) -> bool:
-        """Direct lock-free aiohttp bypass for linksflys.com, linksfire.co, urllinkshort.in,
-        earnlinks.in, v2links.me, urlspay.com, droplink.co — fresh IP/proxy every visit."""
+        """Direct lock-free aiohttp bypass for linksflys.com, linksfire.co, urllinkshort.in, earnlinks.in, v2links.me, urlspay.com."""
         import html as _html
         import secrets
         from urllib.parse import parse_qs, unquote
         import aiohttp
 
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
         for _att in range(2):
-            # Fresh identity every attempt so concurrent/loop jobs never share IP fingerprint
-            base_headers, tunnel_px, _fake_ip = self._fresh_request_identity(job, log_label=job.base)
             jar = aiohttp.CookieJar(unsafe=True)
             try:
                 async with aiohttp.ClientSession(
                     cookie_jar=jar,
-                    headers=base_headers,
+                    headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
                     timeout=aiohttp.ClientTimeout(total=35, connect=12),
-                    **({"proxy": tunnel_px} if tunnel_px else {}),
                 ) as s:
                     if _att == 0:
                         job.log(f"Opening {job.start_url}")
@@ -4391,8 +6331,7 @@ class Bypasser:
         return False
 
     async def _try_gplinks_direct(self, job: Job) -> bool:
-        """Direct aiohttp bypass for gplinks.co / gplinks.in / gplinks.com / gplinks.org
-        (~95s, parallelizable) — fresh IP/proxy every visit."""
+        """Direct aiohttp bypass for gplinks.co / gplinks.in / gplinks.com / gplinks.org (~95s, parallelizable)."""
         alias = urlparse(job.start_url).path.strip("/")
         if not alias or "/" in alias or alias.lower() in ("links", "auth", "admin", "member", "pages", "api", "link-error"):
             return False
@@ -4401,7 +6340,10 @@ class Bypasser:
         import aiohttp
 
         global _GPLINKS_LAST_FINAL
-        base_headers, tunnel_px, _fake_ip = self._fresh_request_identity(job, log_label="gplinks.co")
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
         jar = aiohttp.CookieJar(unsafe=True)
 
         async def _req_retry(s: aiohttp.ClientSession, method: str, url: str, retries: int = 6, **kwargs):
@@ -4419,9 +6361,8 @@ class Bypasser:
         try:
             async with aiohttp.ClientSession(
                 cookie_jar=jar,
-                headers=base_headers,
+                headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
                 timeout=aiohttp.ClientTimeout(total=190, connect=12),
-                **({"proxy": tunnel_px} if tunnel_px else {}),
             ) as s:
                 job.log(f"Opening https://gplinks.co/{alias}")
                 lid = pid = vid = ""
@@ -4771,9 +6712,7 @@ class Bypasser:
         return False
 
     async def _try_babylinks_direct(self, job: Job) -> bool:
-        """Direct lock-free aiohttp origin bypass for babylinks.in (~12.5s via 66.116.207.125).
-        Fresh Indian IP headers + rotated tunnel/residential proxy on EVERY link (get2short style).
-        """
+        """Direct lock-free aiohttp origin bypass for babylinks.in (~12.5s via 66.116.207.125)."""
         alias = urlparse(job.start_url).path.strip("/")
         if not alias or "/" in alias or alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
             return False
@@ -4788,34 +6727,7 @@ class Bypasser:
             or (DYNAMIC_RULES.get("origin_ips") or {}).get("go.babylinks.in")
             or "66.116.207.125"
         )
-        # Fresh mobile IP + optional tunnel proxy for THIS link only (rotate every solve)
-        fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
-        tunnel_px = None
-        try:
-            px_pool = list(self._get_active_tunnel_proxies() or [])
-            random.shuffle(px_pool)
-            for cand in px_pool:
-                c = (cand or "").strip()
-                if c and not self._is_proxy_expired(c):
-                    tunnel_px = c
-                    break
-            if not tunnel_px:
-                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
-                if cfg_px and not self._is_proxy_expired(cfg_px):
-                    tunnel_px = cfg_px
-        except Exception:
-            tunnel_px = None
-        if tunnel_px:
-            try:
-                from urllib.parse import urlparse as _up
-                _pu = _up(tunnel_px)
-                _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
-                job.log(f"🔄 Fresh session proxy for babylinks.in: {_shown} (IP headers {fake_ip})")
-            except Exception:
-                job.log(f"🔄 Fresh session IP headers for babylinks.in ({fake_ip})")
-        else:
-            job.log(f"🔄 Fresh session IP headers for babylinks.in ({fake_ip})")
-
+        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -4824,15 +6736,12 @@ class Bypasser:
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         )
         hdrs_b = {
+            "Host": "babylinks.in",
             "User-Agent": ua,
             "Accept-Language": "en-US,en;q=0.9",
             "CF-Connecting-IP": fake_ip,
-            "X-Forwarded-For": fake_ip,
-            "X-Real-IP": fake_ip,
             "CF-IPCountry": "IN",
         }
-        if not tunnel_px:
-            hdrs_b["Host"] = "babylinks.in"
         try:
             jar_blog = aiohttp.CookieJar(unsafe=True)
             async with aiohttp.ClientSession(
@@ -4845,11 +6754,12 @@ class Bypasser:
                     timeout=aiohttp.ClientTimeout(total=30, connect=10),
                 ) as s_orig:
                     job.log(f"Opening {job.start_url}")
-                    _baby_url = f"https://babylinks.in/{alias}" if tunnel_px else f"https://{origin_ip}/{alias}"
-                    _baby_kw = {"headers": hdrs_b, "ssl": ssl_ctx, "allow_redirects": False}
-                    if tunnel_px:
-                        _baby_kw["proxy"] = tunnel_px
-                    async with s_orig.get(_baby_url, **_baby_kw) as r0:
+                    async with s_orig.get(
+                        f"https://{origin_ip}/{alias}",
+                        headers=hdrs_b,
+                        ssl=ssl_ctx,
+                        allow_redirects=False,
+                    ) as r0:
                         if r0.status == 404:
                             raise BypassError("Shortener link not found (404 on babylinks.in)")
                         c_baby = {}
@@ -4986,25 +6896,20 @@ class Bypasser:
                     for ref_try in (expected_ref_root, cur_u, "https://jobsheel.com/"):
                         cookie_str = "; ".join(f"{k}={v}" for k, v in c_baby.items())
                         hdrs_go = {
+                            "Host": "go.babylinks.in",
                             "User-Agent": ua,
                             "Accept-Language": "en-US,en;q=0.9",
                             "CF-Connecting-IP": fake_ip,
-                            "X-Forwarded-For": fake_ip,
-                            "X-Real-IP": fake_ip,
                             "CF-IPCountry": "IN",
                             "Referer": ref_try,
                             "Cookie": cookie_str,
                         }
-                        if not tunnel_px:
-                            hdrs_go["Host"] = "go.babylinks.in"
-                        _go_url = (
-                            f"https://go.babylinks.in{wp_path}" if tunnel_px
-                            else f"https://{origin_ip}{wp_path}"
-                        )
-                        _go_kw = {"headers": hdrs_go, "ssl": ssl_ctx, "allow_redirects": False}
-                        if tunnel_px:
-                            _go_kw["proxy"] = tunnel_px
-                        async with s_orig.get(_go_url, **_go_kw) as rg1:
+                        async with s_orig.get(
+                            f"https://{origin_ip}{wp_path}",
+                            headers=hdrs_go,
+                            ssl=ssl_ctx,
+                            allow_redirects=False,
+                        ) as rg1:
                             if rg1.status == 404:
                                 raise BypassError("Shortener link not found (404 on go.babylinks.in)")
                             for sc in rg1.headers.getall("Set-Cookie", []):
@@ -5043,14 +6948,12 @@ class Bypasser:
                         "Accept": "application/json, text/javascript, */*; q=0.01",
                     }
                     job.log("Submitting final form to fetch destination…")
-                    _lg_url = (
-                        "https://go.babylinks.in/links/go" if tunnel_px
-                        else f"https://{origin_ip}/links/go"
-                    )
-                    _lg_kw = {"data": fields, "headers": go_hdrs, "ssl": ssl_ctx}
-                    if tunnel_px:
-                        _lg_kw["proxy"] = tunnel_px
-                    async with s_orig.post(_lg_url, **_lg_kw) as rg2:
+                    async with s_orig.post(
+                        f"https://{origin_ip}/links/go",
+                        data=fields,
+                        headers=go_hdrs,
+                        ssl=ssl_ctx,
+                    ) as rg2:
                         dg2 = await rg2.json(content_type=None)
                     if isinstance(dg2, dict) and dg2.get("status") == "success" and dg2.get("url"):
                         dest = str(dg2["url"]).strip()
@@ -5994,8 +7897,7 @@ class Bypasser:
 
     async def _try_shrinkme_direct(self, job: Job, url_override: str | None = None) -> bool:
         """Direct HTTP + aizernal.xyz resolver for shrinkme.click / shrinkme.io / shrinkme.site /
-        en.shrinke.me / srnky.com / shrinkearn.com / ouo.io / ouo.press (~6-24s).
-        Fresh IP headers + rotated tunnel proxy on every visit."""
+        en.shrinke.me / srnky.com / shrinkearn.com / ouo.io / ouo.press (~6-24s)."""
         target_u = normalize_input_url(url_override or job.start_url or "").strip()
         p = urlparse(target_u)
         host = (p.hostname or "").lower()
@@ -6003,29 +7905,23 @@ class Bypasser:
         if not alias:
             return False
         import html as _html
-        import random
         import aiohttp
 
-        base_headers, preferred_px, _fake_ip = self._fresh_request_identity(job, log_label=host or "shrinkme")
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
         # 1. For ShrinkMe family, first try direct CakePHP mirror (en.mrproblogger.com/{alias} with Referer: https://themezon.net/)
-        if any(sh in host for sh in ("shrinkme.", "shrinke.me", "mrproblogger.com", "srnky.com", "shrinkearn.com")) and "/" not in alias:
-            px_cands: list[str | None] = []
-            if preferred_px:
-                px_cands.append(preferred_px)
+        if any(sh in host for sh in ("shrinkme.", "shrinke.me", "mrproblogger.com")) and "/" not in alias:
+            px_cands: list[str | None] = [None]
             for t_px in self._get_active_tunnel_proxies():
                 if t_px and t_px not in px_cands:
                     px_cands.append(t_px)
-            px_cands.append(None)  # direct fallback
-            random.shuffle(px_cands)
-            # keep preferred first if present
-            if preferred_px and preferred_px in px_cands:
-                px_cands.remove(preferred_px)
-                px_cands.insert(0, preferred_px)
-            for active_px in px_cands[:3]:
+            for active_px in px_cands[:2]:
                 try:
                     jar = aiohttp.CookieJar(unsafe=True)
                     async with aiohttp.ClientSession(
-                        headers=base_headers,
+                        headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
                         cookie_jar=jar,
                         timeout=aiohttp.ClientTimeout(total=30, connect=8),
                     ) as s:
@@ -6081,17 +7977,14 @@ class Bypasser:
                 )
             if not tok:
                 return False
-            # Refresh identity again for resolver hop (different egress than shortener hop)
-            aiz_headers, aiz_px, _ = self._fresh_request_identity(job, log_label=f"{host}/resolver")
-            aiz_headers.update({
-                "Origin": "https://aizernal.xyz",
-                "Referer": "https://aizernal.xyz/",
-                "Content-Type": "application/json",
-            })
             async with aiohttp.ClientSession(
-                headers=aiz_headers,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
+                    "Origin": "https://aizernal.xyz",
+                    "Referer": "https://aizernal.xyz/",
+                    "Content-Type": "application/json",
+                },
                 timeout=aiohttp.ClientTimeout(total=65, connect=10),
-                **({"proxy": aiz_px} if aiz_px else {}),
             ) as s:
                 async with s.post(
                     "https://aizernal.xyz/api/resolve",
@@ -6330,32 +8223,92 @@ class Bypasser:
                         allow_redirects=False,
                     ) as r1:
                         loc1 = (r1.headers.get("Location") or "").strip()
+                        if r1.status in (403, 429) and not loc1:
+                            job.fatal = (
+                                f"{host} rejected Turnstile submit (HTTP {r1.status}). "
+                                "Enable tunnel/proxy for url.shortners.workers.dev and retry."
+                            )
+                            return False
                     if not loc1:
                         return False
                     loc1 = urljoin(target_u, loc1)
                     job.steps.append(target_u)
-                    async with s.get(
-                        loc1,
-                        headers={"Referer": f"https://{host}/"},
-                        allow_redirects=False,
-                    ) as r2:
+                    # FreeShare hop — often blocks datacenter IPs ("Network not supported")
+                    fs_headers = {
+                        "Referer": f"https://{host}/",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Upgrade-Insecure-Requests": "1",
+                        "Sec-Fetch-Site": "cross-site",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-User": "?1",
+                    }
+                    async with s.get(loc1, headers=fs_headers, allow_redirects=False) as r2:
                         for sc in r2.headers.getall("Set-Cookie", []):
                             kv = sc.split(";", 1)[0].strip()
                             if "=" in kv:
                                 fs_cookies.append(kv)
                         loc2 = (r2.headers.get("Location") or "").strip()
+                        b2 = await r2.text()
+                        st2 = r2.status
+                    if not loc2:
+                        if st2 in (403, 429) or re.search(
+                            r"network not supported|access denied|just a moment", b2, re.I
+                        ):
+                            job.log("⚠ FreeShare blocked datacenter IP — handing off to browser/tunnel…")
+                            job.browser_handoff_url = loc1
+                            return False
+                        # Sometimes body itself contains meta-refresh / JS redirect
+                        m_js = re.search(
+                            r"(?:location(?:\.href)?|window\.location)\s*=\s*['\"](https?://[^'\"]+)['\"]",
+                            b2,
+                            re.I,
+                        )
+                        m_meta = re.search(
+                            r"""<meta[^>]+http-equiv=["']refresh["'][^>]+url=([^"'>\s]+)""",
+                            b2,
+                            re.I,
+                        )
+                        if m_js:
+                            loc2 = m_js.group(1)
+                        elif m_meta:
+                            loc2 = m_meta.group(1).strip()
                     if not loc2:
                         return False
                     adlinkfly_url = urljoin(loc1, loc2)
                     job.steps.append(loc1)
                 elif "thankyoucloudflare.workers.dev" in host and "token=" in (p.query or ""):
                     job.log(f"Opening {target_u}")
-                    async with s.get(target_u, allow_redirects=False) as r2:
+                    fs_headers = {
+                        "Referer": "https://url.shortners.workers.dev/",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Upgrade-Insecure-Requests": "1",
+                        "Sec-Fetch-Site": "cross-site",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Dest": "document",
+                    }
+                    async with s.get(target_u, headers=fs_headers, allow_redirects=False) as r2:
                         for sc in r2.headers.getall("Set-Cookie", []):
                             kv = sc.split(";", 1)[0].strip()
                             if "=" in kv:
                                 fs_cookies.append(kv)
                         loc2 = (r2.headers.get("Location") or "").strip()
+                        b2 = await r2.text()
+                        st2 = r2.status
+                    if not loc2:
+                        if st2 in (403, 429) or re.search(
+                            r"network not supported|access denied|just a moment", b2, re.I
+                        ):
+                            job.log("⚠ FreeShare blocked datacenter IP — handing off to browser/tunnel…")
+                            job.browser_handoff_url = target_u
+                            return False
+                        m_js = re.search(
+                            r"(?:location(?:\.href)?|window\.location)\s*=\s*['\"](https?://[^'\"]+)['\"]",
+                            b2,
+                            re.I,
+                        )
+                        if m_js:
+                            loc2 = m_js.group(1)
                     if not loc2:
                         return False
                     adlinkfly_url = urljoin(target_u, loc2)
@@ -9252,6 +11205,18 @@ class Bypasser:
             kw["proxy_headers"] = {"Proxy-Authorization": f"Basic {token}"}
         return kw
 
+    def _aiohttp_req_kwargs(self) -> dict:
+        """Per-request kwargs (proxy + proxy_headers + ssl) for aiohttp — in aiohttp 3.x
+        proxy/ssl are REQUEST-level args, not ClientSession args."""
+        pkw = self._aiohttp_proxy_kwargs()
+        out = {}
+        if pkw.get("proxy"):
+            out["proxy"] = pkw["proxy"]
+            out["ssl"] = False
+        if pkw.get("proxy_headers"):
+            out["proxy_headers"] = pkw["proxy_headers"]
+        return out
+
     async def _unwrap_antibypass_track(self, job, track_url: str, referer_url: str) -> bool:
         try:
             import aiohttp
@@ -9418,6 +11383,8 @@ class Bypasser:
         origin_hosts = {
             "arolinks.com", "www.arolinks.com", "vplink.in", "www.vplink.in",
             "link.get2short.com", "ai3.alpha-links.in", "odiadance.com", "sub.odiadance.com",
+            "titan-links.com", "www.titan-links.com", "ver.titan-links.com", "server.titan-links.com",
+            "finance.apnamaterials.site", "apnamaterials.site", "www.apnamaterials.site",
         }
 
         async def origin_route_handler(route, request):
@@ -9428,6 +11395,19 @@ class Bypasser:
                     hdrs = {
                         **request.headers,
                         "cf-connecting-ip": job.fake_ip,
+                        "cf-ipcountry": "IN",
+                    }
+                    await route.continue_(headers=hdrs)
+                    return
+                if any(th in h for th in ("apnamaterials.site", "makeloans.in", "jobsheel.com")):
+                    # titan ad-gate hosts: rotate a fresh fake residential IP per request
+                    import random as _r
+                    _ip = f"49.3{_r.randint(6,9)}.{_r.randint(10,240)}.{_r.randint(10,240)}"
+                    hdrs = {
+                        **request.headers,
+                        "cf-connecting-ip": _ip,
+                        "x-forwarded-for": _ip,
+                        "x-real-ip": _ip,
                         "cf-ipcountry": "IN",
                     }
                     await route.continue_(headers=hdrs)
@@ -9516,25 +11496,29 @@ class Bypasser:
                     reason = data.get("reason")
                     if data.get("status") != "success" and reason in ("ip_risk_blocked", "vpn_blocked",
                                                                       "brave_blocked"):
-                        job.log(
-                            f"⚠ get2short {reason} on browser path — retry via origin/direct if possible"
-                        )
-                        job.g2s_ip_risk = reason
-                        # Only fatal after direct origin path already tried
-                        if getattr(job, "g2s_direct_tried", False):
-                            job.fatal = (
-                                f"get2short blocked this IP/browser ({reason}). "
-                                "Use a home/mobile connection (or set a residential proxy) with VPN off."
-                            )
-                        else:
-                            # Force a direct-origin retry on next attempt cycle
-                            job.pending_redirect = job.start_url
+                        job.fatal = (f"get2short blocked this IP/browser ({reason}). Use a home/mobile "
+                                     "connection (or set a residential proxy) with VPN off.")
                     return
                 if "/tc" in u and resp.request.method == "POST" and resp.status == 200:
                     try:
                         tc_data = await resp.json()
                         if isinstance(tc_data, list) and tc_data:
                             job.loot_tc_tasks = tc_data
+                    except Exception:
+                        pass
+                    return
+                if "/links/go" in u and resp.request.method == "POST" and resp.status == 200:
+                    # shortener final "go" API (m.vipshort.in/links/go & friends) -> {"status":"success","url":...}
+                    try:
+                        data = await resp.json()
+                        if isinstance(data, dict):
+                            dest = str(data.get("url") or "").strip()
+                            if dest.startswith(("http://", "https://")):
+                                if job.is_dest(dest):
+                                    job.set_result(dest, "links/go API")
+                                else:
+                                    job.reached_final = True
+                                    job.pending_redirect = dest
                     except Exception:
                         pass
                     return
@@ -9657,6 +11641,10 @@ class Bypasser:
             if frame != page.main_frame:
                 return
             u = frame.url
+            # titan ad-gate pages rotate between /?p=N variants — count each new URL as progress
+            if job.base == "titan-links.com" and any(th in (host_of(u) or "") for th in ("apnamaterials.site", "makeloans.in", "jobsheel.com")):
+                if u != getattr(job, "cur_url", ""):
+                    job.url_since = time.monotonic()
             job.check_shortcut(u)
             u_low = (u or "").lower()
             if job.is_dest(u) and (
@@ -9759,7 +11747,19 @@ class Bypasser:
             raise BypassError(job.fatal)
         raw_url = page.url or ""
         raw_host = host_of(raw_url)
+        _titan_gate = any(raw_host == th or raw_host.endswith("." + th) for th in ("titan-links.com", "ver.titan-links.com", "server.titan-links.com", "vipcpm.in", "apnamaterials.site", "makeloans.in", "jobsheel.com"))
         if now - job.url_since > cfg.stuck_seconds:
+            if _titan_gate and job.base == "titan-links.com" and now - job.reload_at > 5:
+                # ad-gate page sat too long: re-enter the titan alias for a fresh gate instead of dying
+                job.reload_at = now
+                job.shortcut_used.add(f"titan_stuck_reenter_{int(now)}")
+                job.log(f"Stuck on ad gate {short(raw_url, 60)} — re-entering titan alias for a fresh gate…")
+                try:
+                    await page.goto(job.start_url, wait_until="commit", timeout=30000)
+                except Exception:
+                    pass
+                job.url_since = now
+                return page
             raise BypassError(f"Stuck on {short(raw_url or job.start_url)}")
         if raw_url.startswith("chrome-error://") or raw_host == "chromewebdata":
             if job.last_failed_nav:
@@ -9854,6 +11854,23 @@ class Bypasser:
         host = host_of(url)
         if job.fatal:
             raise BypassError(job.fatal)
+
+        # Datacenter/hosting IP gate (e.g. titan-links.com 403 "Access Blocked — Hosting / Data
+        # Center connection detected"). Raise with failover keywords ("blocked", "data center")
+        # so _resolve_on_worker auto-retries through the residential tunnel device.
+        _bs_low = (snap.get("text") or snap.get("bodySnippet") or "").lower()
+        if DATACENTER_GATE_RE.search(_bs_low or "") and ("data center" in _bs_low or "hosting" in _bs_low):
+            gate_host = host or job.base
+            force_tun = gate_host in FORCE_TUNNEL_HOSTS or (host_of(job.start_url) or "") in FORCE_TUNNEL_HOSTS
+            raise BypassError(
+                f"{gate_host} Access Blocked — Hosting/Data Center connection detected: this server IP is "
+                f"blocked by {job.base} (VPN/proxy/hosting IPs not allowed). "
+                + (
+                    "Retrying with a rotating residential proxy / tunnel device…"
+                    if force_tun
+                    else "Engine will race rotating residential proxies for this domain; or enable the tunnel in the Admin Panel."
+                )
+            )
 
         if snap.get("lockrTarget") and str(snap["lockrTarget"]).startswith(("http://", "https://")):
             lk_t = str(snap["lockrTarget"]).strip()
@@ -10191,6 +12208,34 @@ class Bypasser:
                 if job.fatal:
                     raise BypassError(job.fatal)
 
+        # --- titan-links.com: work.jobsheel.com/*.php fake hop (decoy google site-search) ---
+        # The php page sets best/arm_* cookies; a SECOND hit with those cookies 302s to the
+        # real next gate (makeloans.in/alpha.php). Follow the 302, never the google search.
+        if job.base == "titan-links.com" and "jobsheel.com" in (host or "") and ".php" in (url or ""):
+            if "titan_jobsheel_skip" not in job.shortcut_used:
+                job.shortcut_used.add("titan_jobsheel_skip")
+                job.log("⚡ work.jobsheel.com fake hop detected — double-hitting gate php to get the real 302…")
+                try:
+                    for _jh in range(4):
+                        await page.goto(url, wait_until="domcontentloaded", timeout=30000, referer=job.start_url)
+                        await asyncio.sleep(1.2)
+                        cur = page.url or ""
+                        if "jobsheel.com" not in (host_of(cur) or "") and "google.com" not in cur:
+                            break  # real 302 followed — left the fake hop
+                        await page.goto(url, wait_until="commit", timeout=30000, referer=job.start_url)
+                        await asyncio.sleep(2.0)
+                        cur = page.url or ""
+                        if "jobsheel.com" not in (host_of(cur) or "") and "google.com" not in cur:
+                            break
+                        if "google.com/search" in cur:
+                            await page.go_back(wait_until="commit", timeout=15000)
+                            await asyncio.sleep(1.0)
+                    job.url_since = time.monotonic()
+                    job.log(f"  jobsheel hop resolved → {short(page.url or '')}")
+                except Exception as e:
+                    job.log(f"  jobsheel skip error: {e}")
+                return page
+
         # --- babylinks.in: work.jobsheel.com / mobilesvali.com frontend is restricted; unwrap via jobsheel.com ---
         if job.base == "babylinks.in" and ("baby.php" in url or host in ("work.jobsheel.com", "jobsheel.com", "mobilesvali.com")):
             if "babylinks_unwrapped" not in job.shortcut_used:
@@ -10251,7 +12296,6 @@ class Bypasser:
                 except Exception:
                     pass
             elif alias and "odiadance.com" in host and "odiadance_recover" not in job.shortcut_used:
-                # Stuck mid-chain on an odiadance article — hard-recover via HQ cookie + blog root
                 job.shortcut_used.add("odiadance_recover")
                 job.log("⚡ Recovering stuck odiadance safelink chain → blog root with HQ cookie…")
                 try:
@@ -10420,9 +12464,120 @@ class Bypasser:
                 except Exception:
                     pass
 
-        # --- vipshort.in: unwrap myphp.php / blog via POST vip1=4 directly to m.vipshort.in ---
+        # --- vipshort.in: WP-safelink (geniousguide) OR legacy vip1=4 unwrap ---
         if job.base == "vipshort.in" and host == "m.vipshort.in":
             job.shortcut_used.add("vipshort_unwrapped")
+            # Process go-link form on final page (do not fall back to blog hops)
+            try:
+                has_go = await self._eval(
+                    page,
+                    """() => !!(document.querySelector('form#go-link, form[id*="go"] input[name="_csrfToken"]'))""",
+                )
+            except Exception:
+                has_go = False
+            if not has_go:
+                # the go-link form is injected after the on-page counter — poll briefly
+                for _ in range(8):
+                    job.url_since = time.monotonic()
+                    await asyncio.sleep(1.0)
+                    try:
+                        has_go = await self._eval(
+                            page,
+                            """() => !!(document.querySelector('form#go-link, form[id*="go"] input[name="_csrfToken"]'))""",
+                        )
+                    except Exception:
+                        has_go = False
+                    if has_go:
+                        break
+            if has_go:
+                page_age = time.monotonic() - job.url_since
+                need = max(0.0, 5.5 - page_age)
+                if need > 0:
+                    if url not in job.timer_logged:
+                        job.timer_logged.add(url)
+                        job.log("Page timer detected — running in real time (server-checked)")
+                    job.url_since = time.monotonic()
+                    await asyncio.sleep(min(need, 2.0))
+                    return page
+                job.log("Submitting final form to fetch destination…")
+                try:
+                    dest = await self._eval(
+                        page,
+                        """async () => {
+                            const form = document.querySelector('form#go-link');
+                            if (!form) return null;
+                            const fd = new FormData(form);
+                            const body = new URLSearchParams(fd);
+                            const csrf = (form.querySelector('[name="_csrfToken"]') || {}).value || '';
+                            const r = await fetch('https://m.vipshort.in/links/go', {
+                                method: 'POST',
+                                headers: {
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                    'Accept': 'application/json, text/javascript, */*; q=0.01',
+                                    'X-CSRF-Token': csrf,
+                                },
+                                body,
+                                credentials: 'include',
+                            });
+                            const j = await r.json().catch(() => null);
+                            return (j && j.url) ? j.url : null;
+                        }""",
+                    )
+                    if dest and str(dest).startswith("http"):
+                        job.set_result(str(dest), "m.vipshort links/go")
+                        return page
+                    # fallback: drive the site's own "Get Link" button, then submit the form natively
+                    try:
+                        clicked = await self._eval(
+                            page,
+                            """() => {
+                                const b = document.querySelector('a.get-link, #get-link');
+                                if (b) { b.classList.remove('disabled'); b.click(); return true; }
+                                return false;
+                            }""",
+                        )
+                        if clicked:
+                            job.url_since = time.monotonic()
+                            await asyncio.sleep(2.5)
+                        await self._eval(
+                            page,
+                            """() => { const f = document.querySelector('form#go-link'); if (f) { f.requestSubmit ? f.requestSubmit() : f.submit(); } }""",
+                        )
+                        job.url_since = time.monotonic()
+                        await asyncio.sleep(2.5)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    job.log(f"m.vipshort go-link submit error: {e}")
+        # --- vipshort.in bounce recovery -------------------------------------------------------
+        # A consumed/invalid slt token bounces back to the link.vipshort.in chooser page.
+        # Re-enter the WP-safelink blog chain via ?go=ALIAS instead of getting stuck there.
+        if (
+            job.base == "vipshort.in"
+            and not job.reached_final
+            and host in ("link.vipshort.in", "vipshort.in", "www.vipshort.in")
+            and int(getattr(job, "vipshort_wpsafe_hops", 0) or 0) > 0
+            and "vipshort_bounce_recover" not in job.shortcut_used
+        ):
+            job.shortcut_used.add("vipshort_bounce_recover")
+            alias_m = re.search(r"vipshort\.in/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+            alias = alias_m.group(1) if alias_m else ""
+            if alias:
+                job.log(f"⚠ Bounced back to {host} — re-entering safelink chain ?go={alias}…")
+                try:
+                    blog_host = getattr(job, "vipshort_blog_host", None) or host
+                    await page.goto(
+                        f"https://{blog_host}?go={alias}",
+                        wait_until="domcontentloaded",
+                        timeout=30000,
+                        referer=f"https://{host}/{alias}",
+                    )
+                    job.url_since = time.monotonic()
+                except Exception as e:
+                    job.log(f"  bounce recovery error: {e}")
+                return page
+
         if (
             job.base == "vipshort.in"
             and not job.reached_final
@@ -10432,29 +12587,197 @@ class Bypasser:
             and "google." not in host
             and host != CF_HOST
         ):
-            if "vipshort_unwrapped" not in job.shortcut_used:
+            # Prefer native WP-safelink form submit (newwpsafelink) over broken vip1=4 loops
+            try:
+                has_wpsafe = await self._eval(
+                    page,
+                    """() => !!(document.querySelector('form#wpsafelink-landing, form#wpsafelink-next, form#landing, input[name="newwpsafelink"], input[name="wpsl_token"]'))""",
+                )
+            except Exception:
+                has_wpsafe = False
+            if has_wpsafe:
+                hops = int(getattr(job, "vipshort_wpsafe_hops", 0) or 0)
+                if hops >= 14:
+                    # After enough verified hops, try m.vipshort final page with session cookies
+                    alias_m = re.search(r"vipshort\.in/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+                    alias = alias_m.group(1) if alias_m else ""
+                    if alias and "vipshort_m_try" not in job.shortcut_used:
+                        job.shortcut_used.add("vipshort_m_try")
+                        candidates = []
+                        saved = getattr(job, "vipshort_m_url", None)
+                        if saved:
+                            candidates.append(saved)
+                        candidates.append(f"https://m.vipshort.in/{alias}")
+                        candidates.append(f"https://link.vipshort.in/{alias}")
+                        job.log(f"⚡ WP-safelink hops done — trying {len(candidates)} final URLs")
+                        try:
+                            await self.ctx.add_cookies([
+                                {"name": "ab", "value": "2", "domain": "m.vipshort.in", "path": "/"}
+                            ])
+                        except Exception:
+                            pass
+                        api = self.ctx.request
+                        for cand in candidates:
+                            if "vipshort_go_done" in job.shortcut_used:
+                                break
+                            try:
+                                job.log(f"  try final {cand[:70]}")
+                                if "slt=" in cand or "m.vipshort.in" in cand:
+                                    # slt tokens are single-use and Referer-bound: they MUST be opened
+                                    # as a real browser navigation — API GETs (ctx.request) bounce to
+                                    # link.vipshort.in with no go-link form. Always navigate the page.
+                                    await page.goto(cand, wait_until="domcontentloaded", timeout=30000, referer=url)
+                                    job.url_since = time.monotonic()
+                                    return page
+                                r1 = await api.get(
+                                    cand,
+                                    headers={"Referer": page.url or f"https://{host}/"},
+                                    max_redirects=5,
+                                    timeout=30000,
+                                )
+                                html = await r1.text()
+                                final_url = str(r1.url or "")
+                                job.log(f"  → status={r1.status} url={short(final_url)} len={len(html)}")
+                                if "geniousguide" in final_url and "go-link" not in html:
+                                    job.log("  still on blog — next candidate")
+                                    continue
+                                fm = re.search(
+                                    r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>',
+                                    html, re.S | re.I,
+                                )
+                                if not fm:
+                                    if any(k in final_url for k in ("pastelink", "mega.nz", "mediafire")):
+                                        job.shortcut_used.add("vipshort_go_done")
+                                        job.shortcut_used.add("vipshort_unwrapped")
+                                        if await self._finalize_or_unwrap_dest(
+                                            job, final_url, cand, "m.vipshort redirect"
+                                        ):
+                                            return page
+                                        job.set_result(final_url, "m.vipshort redirect")
+                                        return page
+                                    continue
+                                fields = {}
+                                for inp in re.findall(r"<input[^>]+>", fm.group(1), re.I):
+                                    nm = re.search(r'name=["\']([^"\']+)["\']', inp, re.I)
+                                    vl = re.search(r'value=["\']([^"\']*)["\']', inp, re.I)
+                                    if nm:
+                                        fields[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+                                job.log("Page timer detected — running in real time (server-checked)")
+                                await asyncio.sleep(5.5)
+                                job.log("Submitting final form to fetch destination…")
+                                r2 = await api.post(
+                                    "https://m.vipshort.in/links/go",
+                                    form=fields,
+                                    headers={
+                                        "Referer": final_url,
+                                        "Origin": "https://m.vipshort.in",
+                                        "X-Requested-With": "XMLHttpRequest",
+                                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                                        "X-CSRF-Token": fields.get("_csrfToken", ""),
+                                    },
+                                    timeout=30000,
+                                )
+                                try:
+                                    data = json.loads(await r2.text())
+                                except Exception:
+                                    data = {}
+                                dest = (data or {}).get("url") or ""
+                                if dest:
+                                    job.shortcut_used.add("vipshort_go_done")
+                                    job.shortcut_used.add("vipshort_unwrapped")
+                                    job.log(f"✔ Destination found → {short(dest)}")
+                                    if await self._finalize_or_unwrap_dest(
+                                        job, dest, cand, "m.vipshort links/go"
+                                    ):
+                                        return page
+                                    job.set_result(dest, "m.vipshort links/go")
+                                    return page
+                                job.log(f"  links/go: {(await r2.text())[:120]}")
+                            except Exception as e:
+                                job.log(f"  candidate error: {e}")
+                        return page
+
+                    job.log("Vipshort WP-safelink hop limit reached — stopping browser loop")
+                    job.fatal = (
+                        "Vipshort WP-safelink chain exhausted without reaching m.vipshort.in / destination"
+                    )
+                    return page
+                try:
+                    delay = await self._eval(
+                        page,
+                        r"""() => {
+                          try {
+                            const inp = document.querySelector('input[name="newwpsafelink"]');
+                            if (!inp || !inp.value) return 20;
+                            const raw = inp.value.replace(/-/g,'+').replace(/_/g,'/');
+                            const pad = '='.repeat((4 - raw.length % 4) % 4);
+                            const json = JSON.parse(atob(raw + pad));
+                            return Number(json.delay) || 20;
+                          } catch (e) { return 20; }
+                        }""",
+                    )
+                except Exception:
+                    delay = 20
+                delay = float(delay or 20)
+                job.vipshort_wpsafe_hops = hops + 1
+                job.vipshort_blog_host = host
+                job.log(
+                    f"Submitting safelink form on {host} "
+                    f"(server timer {delay:.0f}s, hop {hops + 1}/14)"
+                )
+                job.url_since = time.monotonic()  # reset stuck timer during wait
+                await asyncio.sleep(min(max(delay + 0.8, 5.0), 22.0))
+                job.url_since = time.monotonic()
+                try:
+                    await self._eval(
+                        page,
+                        """() => {
+                          const f = document.querySelector('form#wpsafelink-landing, form#wpsafelink-next, form#landing, form[name="dsb"]')
+                                    || document.querySelector('input[name="newwpsafelink"]')?.form
+                                    || document.querySelector('input[name="wpsl_token"]')?.form;
+                          if (f) { f.submit(); return true; }
+                          // fallback: click the human verify button
+                          const btn = document.querySelector('#wpsafelinkhuman, a[onclick*="wpsafehuman"]');
+                          if (btn) { btn.click(); return true; }
+                          return false;
+                        }""",
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(1.5)
+                return page
+
+            # vip1=4 only as cold-start legacy path on the ORIGINAL geniousguide.com deployment.
+            # On any other WP-safelink blog (e.g. blog.hindumantra.net) the vip1=4 POST poisons the
+            # wpsl session server-side, so every later slt token bounces — never do it there.
+            # Also never mid-hop (breaks the wpsl step).
+            hops_done = int(getattr(job, "vipshort_wpsafe_hops", 0) or 0)
+            if (
+                "vipshort_unwrapped" not in job.shortcut_used
+                and hops_done == 0
+                and host in ("geniousguide.com", "www.geniousguide.com")
+            ):
                 try:
                     m_url = getattr(job, "vipshort_m_url", None)
                     if not m_url:
                         job.log(f"⚡ Unwrapping vipshort step chain on {host} via vip1=4…")
                         m_url = await self._eval(
                             page,
-                            r"""async () => {
+                            """async () => {
                                 try {
-                                    for (let i = 1; i < 10000; i++) { clearTimeout(i); clearInterval(i); }
-                                    const r = await fetch('/', {
+                                    const r = await fetch(location.origin + '/', {
                                         method: 'POST',
                                         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                                         body: 'vip1=4',
-                                        credentials: 'include'
+                                        credentials: 'include',
                                     });
                                     const html = await r.text();
-                                    const m = html.match(/https:\/\/m\.vipshort\.in\/[^\s"'<>]+/);
-                                    return m ? m[0].replace(/&amp;/g, '&') : null;
+                                    const m = html.match(/https:\\/\\/m\\.vipshort\\.in\\/[^\\s"'<>]+/);
+                                    return m ? m[0] : null;
                                 } catch (e) { return null; }
                             }""",
                         )
-                    if m_url and str(m_url).startswith("http"):
+                    if m_url:
                         job.vipshort_m_url = str(m_url)
                         job.log(f"⚡ Final link obtained → {short(m_url)}")
                         await self.ctx.add_cookies([
@@ -10466,6 +12789,7 @@ class Bypasser:
                         return page
                 except Exception:
                     pass
+
 
         if job.pending_redirect and job.pending_redirect not in job.pending_redirect_used:
             target = job.pending_redirect
@@ -10565,8 +12889,12 @@ class Bypasser:
             return page
 
         # --- ad / tab-under redirect recovery (e.g. pornworks.com / utm_source=adsterra) ---
+        _titan_chain = any(
+            th in host for th in ("titan-links.com", "apnamaterials.site", "makeloans.in", "jobsheel.com")
+        )
         if (
             url.startswith("http")
+            and not _titan_chain
             and (job.is_ad_domain(url) or "utm_source=adsterra" in url.lower())
         ):
             prev_u = next(
@@ -10594,6 +12922,10 @@ class Bypasser:
         # --- new page -----------------------------------------------------------
         if url != job.cur_url:
             job.cur_url, job.url_since = url, now
+            if job.base == "titan-links.com" and any(th in (host or "") for th in ("apnamaterials.site", "makeloans.in", "jobsheel.com")):
+                # ad-gate pages cycle between /?p=N variants of the same gate; each new variant
+                # is progress (fresh gate token), so don't let the stuck watchdog fire on them
+                job.url_since = now
             if host != CF_HOST and url.startswith("http") and "__cf_chl" not in url:
                 job.steps.append(url)
                 job.log(f"→ {short(url)}")
@@ -10608,8 +12940,67 @@ class Bypasser:
 
         text = snap.get("text", "")
 
+        # --- freepaste.link / fpst.us: paste content via POST /get-paste (base64+urlencoded) ---
+        if job.base in ("freepaste.link", "fpst.us") and not job.reached_final and "fp_api_done" not in job.shortcut_used:
+            import base64 as _b64
+            from urllib.parse import unquote as _uq
+            _alias = urlparse(job.start_url or "").path.strip("/")
+            try:
+                _r = await self.ctx.request.post(
+                    f"https://{job.base}/get-paste",
+                    data={"slug": _alias, "password": "", "_token": ""},
+                    headers={"Referer": job.start_url, "X-Requested-With": "XMLHttpRequest"},
+                    timeout=20000,
+                )
+                _j = {}
+                try:
+                    _j = await _r.json(content_type=None)
+                except Exception:
+                    _j = {}
+                _content = str((_j or {}).get("content") or "")
+                if _content:
+                    job.shortcut_used.add("fp_api_done")
+                    _raw = _b64.b64decode(_content + "=" * (-len(_content) % 4)).decode("utf-8", "replace")
+                    _dec = _uq(_raw)
+                    _cands = re.findall(r"https?://[^\s\"'<>\)\]]+", _dec, re.I)
+                    _cands = [c for c in _cands if job.is_dest(c)]
+                    if _cands:
+                        job.log(f"⚡ freepaste get-paste → destination {short(_cands[0])}")
+                        job.set_result(_cands[0], "freepaste get-paste API")
+                        return page
+            except Exception:
+                pass
+
+        # --- freepaste.link / fpst.us paste-view: dest is inside the paste content ---
+        if job.base in ("freepaste.link", "fpst.us") and not job.reached_final:
+            _paste_hosts = ("freepaste.link", "fpst.us")
+            if any(host == ph or host.endswith("." + ph) for ph in _paste_hosts):
+                _paste_txt = ""
+                try:
+                    _paste_txt = await self._eval(
+                        page,
+                        """() => {
+                          const ta = document.querySelector('textarea');
+                          if (ta && ta.value) return ta.value;
+                          const cm = document.querySelector('.CodeMirror');
+                          if (cm) return cm.textContent || '';
+                          return document.body ? document.body.innerText : '';
+                        }""",
+                    ) or ""
+                except Exception:
+                    _paste_txt = text or ""
+                _cands = re.findall(r"https?://(?!freepaste\.link|fpst\.us|www\.freepaste|cdn\.|maxcdn|cdnjs|googletagmanager|googleapis|ui-avatars|gstatic)[^\s\"'<>\)\]]+", _paste_txt, re.I)
+                _cands = [c for c in _cands if job.is_dest(c)]
+                if _cands and "fp_paste_done" not in job.shortcut_used:
+                    job.shortcut_used.add("fp_paste_done")
+                    job.log(f"⚡ freepaste paste-view — destination in paste content → {short(_cands[0])}")
+                    job.set_result(_cands[0], "freepaste paste content")
+                    return page
+
         # --- dead / 404 / 52x shortener links ----------------------------------
-        if (host == job.base or host.endswith("." + job.base)) and not job.reached_final:
+        _titan_gate_hosts = ("titan-links.com", "ver.titan-links.com", "server.titan-links.com", "vipcpm.in", "apnamaterials.site", "makeloans.in", "jobsheel.com")
+        _on_titan_gate = any(host == th or host.endswith("." + th) for th in _titan_gate_hosts)
+        if (host == job.base or host.endswith("." + job.base)) and not job.reached_final and not _on_titan_gate:
             is_restricted = bool(re.search(r"access temporarily restricted|verification rule violation", text, re.I))
             if is_restricted:
                 if "g2s_restricted_retried" not in job.shortcut_used and now - job.reload_at > 5:
@@ -10650,6 +13041,39 @@ class Bypasser:
             ):
                 raise BypassError(f"Shortener server {host} is down (Cloudflare 52x — origin server offline)")
 
+        # --- titan-links.com ad-gate rotation (apnamaterials.site / makeloans.in) ---
+        if (_on_titan_gate or (job.base == "titan-links.com" and "jobsheel.com" in (host or ""))) and (
+            re.search(r"access temporarily restricted|verification rule violation|dns points to prohibited|error 1000|access blocked|please wait", text + " " + snap.get("title", ""), re.I)
+        ):
+            _gk = f"titan_gate_retry_{len(job.shortcut_used)}"
+            _n_gate_retries = sum(1 for k in job.shortcut_used if str(k).startswith("titan_gate_retry_"))
+            if _n_gate_retries >= 10:
+                raise BypassError("titan-links.com ad gate kept restricting this datacenter IP after 10 fresh gates — needs a real residential IP")
+            if _gk not in job.shortcut_used and now - job.reload_at > 3:
+                job.shortcut_used.add(_gk)
+                job.reload_at = now
+                if "jobsheel.com" in (host or ""):
+                    job.log(f"Fake hop {host} stuck — re-hitting the gate php for the real 302…")
+                    try:
+                        await page.goto(url, wait_until="commit", timeout=30000, referer=job.start_url)
+                        await asyncio.sleep(2.5)
+                        if "jobsheel.com" in (host_of(page.url or "") or ""):
+                            await page.goto(url, wait_until="commit", timeout=30000, referer=job.start_url)
+                            await asyncio.sleep(2.0)
+                    except Exception:
+                        pass
+                else:
+                    job.log(f"Ad gate {host} temporarily restricted — re-entering titan alias for a fresh gate…")
+                    try:
+                        await page.goto(job.start_url, wait_until="commit", timeout=30000)
+                    except Exception:
+                        pass
+                job.url_since = now
+                return page
+            if now - job.reload_at > 20:
+                raise BypassError("Blocked by titan ad gate (Access Temporarily Restricted)")
+            return page
+
         # --- Google Sign-In Gate on alpha-links.in (ai3.alpha-links.in) --------
         if job.google_required_client_id and "google_cred_tried" not in job.shortcut_used:
             job.shortcut_used.add("google_cred_tried")
@@ -10685,7 +13109,8 @@ class Bypasser:
             raise BypassError(f"{job.base} requires Google Account Sign-In (OAuth) on this link")
 
         # --- hard blocks (VPN / datacenter IP / unsupported browser) -----------
-        if BLOCK_RE.search(text) or BLOCK_RE.search(snap.get("title", "")):
+        _titan_family = _on_titan_gate or host == job.base and job.base == "titan-links.com"
+        if not _titan_family and (BLOCK_RE.search(text) or BLOCK_RE.search(snap.get("title", ""))):
             job.blocked_since = job.blocked_since or now
             if now - job.blocked_since > 4:
                 raise BypassError("Blocked by the site (VPN/datacenter IP or browser refused). "
@@ -10705,8 +13130,6 @@ class Bypasser:
         if re.search(r"verification failed|please refresh and try again", text, re.I) \
                 and now - job.reload_at > 10:
             job.reload_at = now
-            # get2short often lands here after admin-post rejects the safelink timer —
-            # recover via odiadance HQ cookie instead of infinite reload loops
             if job.base == "get2short.com" and "g2s_verify_recover" not in job.shortcut_used:
                 alias = urlparse(job.start_url).path.strip("/")
                 if alias:
@@ -10727,6 +13150,39 @@ class Bypasser:
             except Exception:
                 pass
             return page
+
+        # --- LinkForge FreeShare gate: tunnel path + direct unwrap + IP-block handling ----------
+        if "thankyoucloudflare.workers.dev" in host and "token=" in url:
+            # Keep stuck timer alive while FreeShare auto-redirects (needs residential/tunnel IP)
+            job.url_since = time.monotonic()
+            if re.search(r"network not supported|access denied|error code:\s*1000", text, re.I):
+                if "sw_freeshare_blocked" not in job.shortcut_used:
+                    job.shortcut_used.add("sw_freeshare_blocked")
+                    job.log(
+                        "⚠ FreeShare IP blocked on this path — ensure tunnel is ON for "
+                        "url.shortners.workers.dev (Admin → Shortener Tunnels). Retrying once…"
+                    )
+                    # Bounce back to original shortners URL so browser re-enters with tunnel session
+                    try:
+                        back = job.start_url if "shortners.workers.dev" in (job.start_url or "") else None
+                        if back:
+                            await page.goto(back, wait_until="commit", timeout=30000)
+                            return page
+                    except Exception:
+                        pass
+                else:
+                    raise BypassError(
+                        "freeshare.thankyoucloudflare.workers.dev blocked this IP "
+                        "('Network not supported'). Turn ON tunnel for url.shortners.workers.dev "
+                        "in Admin Panel (home/mobile tunnel device must be online)."
+                    )
+            if "sw_freeshare_direct" not in job.shortcut_used:
+                job.shortcut_used.add("sw_freeshare_direct")
+                job.log("⚡ FreeShare token page — unwrapping via direct solver…")
+                if await self._try_shortners_workers_direct(job, url_override=url):
+                    return page
+                if job.fatal:
+                    raise BypassError(job.fatal)
 
         # --- final page detection --------------------------------------------------
         on_base = host == job.base or host.endswith("." + job.base)
@@ -10899,15 +13355,101 @@ class Bypasser:
                 job.shortcut_used.add(target)
                 job.log(f"⚡ Final link found in page source — skipping remaining steps → {short(target)}")
                 ref_root = f"https://{host}/" if host else url
+
+                # --- vipshort: m.vipshort.in?slt= ---
+                # The blog HTML often embeds a STATIC slt= link (false positive).
+                # Only accept it when we actually get form#go-link on m.vipshort.
+                # If request redirects back to geniousguide, keep hopping.
+                if "m.vipshort.in" in target and job.base == "vipshort.in":
+                    job.vipshort_m_url = target
+                    if "vipshort_go_done" in job.shortcut_used:
+                        return page
+                    # slt token = base64(json).sig ; reject stale/cached tokens (exp in the past)
+                    import base64 as _b64
+                    exp_ok = True
+                    try:
+                        _tm = re.search(r"slt=([A-Za-z0-9_=-]+)", target)
+                        if _tm:
+                            _raw = _tm.group(1).split(".")[0].replace("-", "+").replace("_", "/")
+                            _raw += "=" * (-len(_raw) % 4)
+                            _tj = json.loads(_b64.b64decode(_raw))
+                            exp_ok = float(_tj.get("exp") or 0) > time.time() + 15
+                    except Exception:
+                        exp_ok = True
+                    if not exp_ok:
+                        if f"stale_slt:{target}" not in job.shortcut_used:
+                            job.shortcut_used.add(f"stale_slt:{target}")
+                            job.log("⚠ stale cached slt token (expired) — restarting safelink chain via ?go=…")
+                            alias_m = re.search(r"vipshort\.in/([A-Za-z0-9_-]+)", job.start_url or "", re.I)
+                            blog_host = getattr(job, "vipshort_blog_host", None) or host or "blog.hindumantra.net"
+                            if alias_m:
+                                try:
+                                    await page.goto(
+                                        f"https://{blog_host}?go={alias_m.group(1)}",
+                                        wait_until="domcontentloaded", timeout=30000,
+                                    )
+                                except Exception:
+                                    pass
+                        job.url_since = time.monotonic()
+                        await asyncio.sleep(2.0)
+                        return page
+                    # wait out the on-page countdown (server only accepts the single-use slt
+                    # after the verified delay has elapsed on this page)
+                    page_age = now - job.url_since
+                    try:
+                        delay_now = await self._eval(
+                            page,
+                            r"""() => {
+                              try {
+                                const inp = document.querySelector('input[name="newwpsafelink"]');
+                                if (inp && inp.value) {
+                                  const raw = inp.value.replace(/-/g,'+').replace(/_/g,'/');
+                                  const j = JSON.parse(atob(raw + '='.repeat((4 - raw.length % 4) % 4)));
+                                  return Number(j.delay) || 20;
+                                }
+                              } catch (e) {}
+                              return 20;
+                            }""",
+                        )
+                    except Exception:
+                        delay_now = 20
+                    if page_age < float(delay_now):
+                        job.url_since = time.monotonic()
+                        await asyncio.sleep(min(float(delay_now) - page_age + 1.0, 22.0))
+                        return page
+                    try:
+                        await self.ctx.add_cookies([
+                            {"name": "ab", "value": "2", "domain": "m.vipshort.in", "path": "/"}
+                        ])
+                    except Exception:
+                        pass
+                    # The slt token is SINGLE-USE and bound to a real browser navigation from the
+                    # safelink blog page (Referer required). ctx.request / API GETs bounce back to
+                    # link.vipshort.in — so navigate in-page; the m.vipshort.in handler above
+                    # then submits form#go-link on the next ticks.
+                    job.log(f"⚡ Final link found in page source — opening in browser tab → {short(target)}")
+                    try:
+                        await self._eval(page, "(u) => { window.location.href = u; }", target)
+                        await asyncio.sleep(2.0)
+                        job.url_since = time.monotonic()
+                        job.log(f"  → landed on {short(page.url or '')}")
+                        if host_of(page.url or "") != "m.vipshort.in":
+                            job.log("  slt bounced (consumed/invalid) — bounce recovery will re-enter the chain")
+                    except Exception as e:
+                        job.log(f"  slt navigation error: {e}")
+                    return page
+
+                # Non-vipshort final links: normal navigation
                 try:
                     t_host = host_of(target)
                     if t_host:
                         await self.ctx.add_cookies([
                             {"name": "ab", "value": "2", "domain": t_host, "path": "/"}
                         ])
-                    await page.goto(target, wait_until="commit", referer=ref_root)
-                except Exception:
-                    pass
+                    await page.goto(target, wait_until="domcontentloaded", timeout=30000, referer=ref_root)
+                    job.url_since = time.monotonic()
+                except Exception as e:
+                    job.log(f"Final-link navigation error: {e}")
                 return page
 
         # --- WP safelink form: server only checks the timer token -> wait & submit ------
@@ -10951,18 +13493,19 @@ class Bypasser:
                     job.timer_logged.add(url)
                     job.log(f"Safelink form found — server timer {left:.0f}s left, then auto-submit "
                             "(skipping ads/buttons on this page)")
-                # Keep stuck-timer alive while waiting for WP safelink server timer
                 job.url_since = time.monotonic()
                 await asyncio.sleep(min(left, 1.0))
                 return page
             elif cnt < 5 and now - last > 8:
+                # vipshort WP-safelink blogs must use the dedicated hop path (20s timer)
+                if job.base == "vipshort.in" and host and "vipshort" not in host:
+                    return page
                 job.form_submits[key] = (cnt + 1, now)
                 job.log(f"Submitting safelink form → {short(f.get('action') or '', 70)}")
                 try:
                     await self._eval(page, SUBMIT_FORM_JS, f["id"])
                 except Exception:
                     pass
-                # Form navigation can be slow on WP blogs (odiadance); don't count as stuck
                 job.url_since = time.monotonic()
                 await asyncio.sleep(1.5)
                 return page
@@ -11023,7 +13566,7 @@ class Bypasser:
                 "babylinks.in", "softurl.in", "shortxlinks.in", "shortxlinks.com",
                 "vipshort.in", "alpha-links.in", "urllinkshort.in", "urlspay.com",
                 "linksflys.com", "linksfire.co", "droplink.co",
-                "exeygo.com", "exe.io", "exey.io",
+                "exeygo.com", "exe.io", "exey.io", "titan-links.com",
             ):
                 wait_needed = 7.5 if job.base in ("exeygo.com", "exe.io", "exey.io") else 6.0
             elif job.base == "v2links.me":

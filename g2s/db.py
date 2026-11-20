@@ -285,7 +285,6 @@ DEFAULT_SHORTENERS = [
     {"domain": "exeygo.com", "name": "ExeyGo", "desc": "2-Step Turnstile + VHit Gate"},
     {"domain": "droplink.co", "name": "DropLink", "desc": "2-Hop Safelink + /links/go"},
     {"domain": "babylinks.in", "name": "BabyLinks", "desc": "JobSheel Safelink + /links/go"},
-    {"domain": "titan-links.com", "name": "TitanLinks", "desc": "AdLinkFly + WP Safelink (fresh proxy per link)"},
     {"domain": "liteshort.com", "name": "LiteShort", "desc": "Multi-Step Blog + AntiBypass"},
     {"domain": "nowshort.com", "name": "NowShort", "desc": "Safelink + Turnstile"},
     {"domain": "linksflys.com", "name": "LinksFlys", "desc": "Safelink Redirect + /links/go"},
@@ -298,6 +297,7 @@ DEFAULT_SHORTENERS = [
     {"domain": "shortxlinks.com", "name": "ShortXLinks", "desc": "Multi-Step Safelink + /links/go"},
     {"domain": "odiadance.com", "name": "OdiaDance", "desc": "Sub Gate + /links/go"},
     {"domain": "vipshort.in", "name": "VipShort", "desc": "VIP1=4 Unwrap + m.vipshort.in"},
+    {"domain": "titan-links.com", "name": "TitanLinks", "desc": "Blocks datacenter IPs (403) — residential tunnel required"},
     {"domain": "softurl.in", "name": "SoftURL", "desc": "NewWpSafelink + 33s Timer"},
     {"domain": "urllinkshort.in", "name": "UrlLinkShort", "desc": "SunTechU Token + Web Gate"},
     {"domain": "lksfy.com", "name": "Lksfy", "desc": "2-Step Form + AES-CBC Decrypt"},
@@ -648,7 +648,7 @@ class Database:
             "solver_url": (
                 os.environ.get("G2S_SOLVER_URL")
                 or raw.get("solver_url")
-                or "https://cf.vltcx.eu.cc"
+                or "https://turnstile-solver-fixed-production-283c.up.railway.app"
             ).rstrip("/"),
             "solver_api_key": os.environ.get("G2S_SOLVER_API_KEY") or raw.get("solver_api_key"),
             "accel_factor": float(os.environ.get("G2S_ACCEL_FACTOR") or raw.get("accel_factor", 0.1)),
@@ -660,7 +660,7 @@ class Database:
             "show_browser": bool(raw.get("show_browser", False)),
             "no_accel_hosts": list(raw.get("no_accel_hosts") or [
                 "get2short.com", "liteshort.com", "nowshort.com", "linksflys.com",
-                "vplink.in", "arolinks.com", "babylinks.in", "alpha-links.in", "urllinkshort.in", "titan-links.com",
+                "vplink.in", "arolinks.com", "babylinks.in", "alpha-links.in", "urllinkshort.in",
                 "lksfy.com", "softurl.in", "shortwala.com", "earnlinks.in", "inshorturl.in", "inshorturl.com"
             ]),
             "shortener_tunnels": {
@@ -710,8 +710,6 @@ class Database:
                     "sub.odiadance.com": "66.116.207.125",
                     "babylinks.in": "66.116.207.125",
                     "go.babylinks.in": "66.116.207.125",
-                    "titan-links.com": "66.116.207.125",
-                    "www.titan-links.com": "66.116.207.125",
                     "arolinks.com": "82.25.97.148",
                     "www.arolinks.com": "82.25.97.148",
                     "vplink.in": "82.25.97.148",
@@ -1616,6 +1614,8 @@ class Database:
         dom = _extract_shortener_domain(url)
         if not dom or dom in ("avbypassbot.koyeb.app", "directlinker.com"):
             return False
+        # titan-links.com blocks datacenter IPs (403 "Access Blocked") — the engine races
+        # rotating residential proxies for it automatically, so the tunnel toggle stays optional.
         st_map = self.settings.get("shortener_tunnels") or {}
         return bool(st_map.get(dom, False))
 

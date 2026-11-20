@@ -1530,10 +1530,119 @@ class AIEngineer:
         return list(results)
 
     # ------------------------------------------------- Main Autonomous Execution
+    def _analyze_root_cause_patterns(self, error_entry: dict | None, step_logs: list[str]) -> dict[str, Any]:
+        """Deterministic root-cause classifier for common bypass failures.
+        Returns a structured diagnosis the LLM brain + auto-fix path should honor.
+        """
+        logs = "\n".join(str(x) for x in (step_logs or []))
+        err = str((error_entry or {}).get("error") or "")
+        src = str((error_entry or {}).get("source") or "")
+        stuck_m = re.search(r"Stuck on (https?://[^\s]+)", err) or re.search(r"Stuck on (https?://[^\s]+)", logs)
+        stuck_url = stuck_m.group(1) if stuck_m else ""
+        stuck_host = _host_of(stuck_url)
+        diagnosis = {
+            "pattern": "unknown",
+            "summary": "",
+            "fix_hints": [],
+            "engine_targets": ["g2s/engine.py"],
+            "priority": "normal",
+        }
+        vip1_count = len(re.findall(r"via vip1=4", logs, re.I))
+        safelink_submits = len(re.findall(r"Submitting safelink form", logs, re.I))
+        same_host_hops = len(re.findall(re.escape(stuck_host), logs)) if stuck_host else 0
+
+        if stuck_host and (
+            "vipshort" in src
+            or "vipshort" in logs.lower()
+            or vip1_count >= 2
+            or "geniousguide" in stuck_host
+        ):
+            diagnosis.update({
+                "pattern": "vipshort_wpsafelink_loop",
+                "summary": (
+                    "Vipshort modern chain uses WordPress safelink forms (newwpsafelink) on blog hosts "
+                    f"like {stuck_host}. Repeated vip1=4 POSTs never reach m.vipshort.in and cause stuck loops."
+                ),
+                "fix_hints": [
+                    "Detect form#wpsafelink-landing / input[name=newwpsafelink] and submit after delay seconds from token",
+                    "Do NOT call vip1=4 while WP-safelink forms are present",
+                    "Cap blog hops (max 8) and fail cleanly if destination never appears",
+                    "Final step must open m.vipshort.in go-link form and POST /links/go",
+                    "Add geniousguide.com (and similar blog hosts) to no_accel if timers are accelerated",
+                ],
+                "priority": "high",
+            })
+        elif "not_enough_steps" in logs or (stuck_host and "gplinks" in (src + stuck_host)):
+            diagnosis.update({
+                "pattern": "timer_acceleration_rejected",
+                "summary": "Server-side step timers were accelerated; shortener rejected the session (not_enough_steps).",
+                "fix_hints": [
+                    "Add host to Config.no_accel_hosts",
+                    "Force no_accel=True in _attempt for this base domain",
+                    "Wait full real-time duration before /links/go",
+                ],
+                "priority": "high",
+            })
+        elif "Turnstile solver error" in logs or "launch_persistent_context" in logs:
+            diagnosis.update({
+                "pattern": "solver_browser_timeout",
+                "summary": "Local Camoufox turnstile solver failed to launch/timed out under load.",
+                "fix_hints": [
+                    "Prefer remote turnstile solver URL first",
+                    "Serialize solver launches / increase timeout",
+                    "Reuse solver profile dir carefully; avoid concurrent launches",
+                ],
+                "priority": "high",
+            })
+        elif "Network not supported" in logs or "thankyoucloudflare.workers.dev" in logs:
+            diagnosis.update({
+                "pattern": "cf_worker_datacenter_block",
+                "summary": "Cloudflare Worker shortener blocked datacenter IP.",
+                "fix_hints": [
+                    "Hand off to residential tunnel / browser path",
+                    "Rotate proxy per link",
+                    "Avoid pure datacenter egress for this host",
+                ],
+                "priority": "high",
+            })
+        elif stuck_url and safelink_submits >= 3 and same_host_hops >= 5:
+            diagnosis.update({
+                "pattern": "blog_hop_loop",
+                "summary": f"Repeated safelink form submits stayed on {stuck_host} without reaching final shortener domain.",
+                "fix_hints": [
+                    "Parse form action + hidden tokens carefully (newwpsafelink / ak_safelink)",
+                    "Honor server delay from token",
+                    "Detect action URL rotation loops and break out",
+                    "Search response for final shortener domain (m.vipshort.in / links/go)",
+                ],
+                "priority": "high",
+            })
+        else:
+            diagnosis["summary"] = err or "Unclassified bypass failure"
+        return diagnosis
+
     async def _execute_run(self, run: dict[str, Any], error_entry: dict | None = None):
         async with self._run_lock:
             try:
                 run["phase"] = "scanning_logs"
+                # Deterministic root-cause pass (before LLM) so fixes target the real bug class
+                try:
+                    _steps = list((error_entry or {}).get("log") or (error_entry or {}).get("steps") or [])
+                    if not _steps and error_entry:
+                        _steps = [str((error_entry or {}).get("error") or "")]
+                    _diag = self._analyze_root_cause_patterns(error_entry, _steps)
+                    run["root_cause"] = _diag
+                    self._emit(
+                        run,
+                        "thinking",
+                        f"🔎 Root-cause pattern: {_diag.get('pattern')}",
+                        (_diag.get("summary") or "")
+                        + "\n\nFix hints:\n- "
+                        + "\n- ".join(_diag.get("fix_hints") or []),
+                    )
+                except Exception as _diag_err:
+                    self._emit(run, "thinking", "Root-cause classifier skipped", str(_diag_err)[:200])
+
                 self._emit(
                     run,
                     "thinking",

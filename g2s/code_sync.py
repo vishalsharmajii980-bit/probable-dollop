@@ -137,25 +137,30 @@ class CodeSyncManager:
                         )
                         mongo_content = str((doc or {}).get("content") or "")
 
-                        # Feature markers: if the Docker/deploy image has product features
-                        # that MongoDB snapshot is missing, prefer deploy and push UP to Mongo
-                        # (prevents Anti-Rollback from wiping Loop Mode / new panels on every restart)
+                        # Feature markers: if deploy image has fixes Mongo snapshot lacks,
+                        # keep container file and push UP to Mongo (stops Anti-Rollback wipe).
                         _FEATURE_MARKERS = {
-                            "g2s/bot.py": (
-                                "loop:setup",
-                                "_cmd_loop_setup",
-                                "/loop_setup",
-                                "Loop Setup",
-                                "loop:conc:",
-                                "_finish_loop_setup",
-                                "concurrency",
-                            ),
                             "g2s/engine.py": (
-                                "browser_handoff_url",
-                                "_try_shortners_workers_direct",
-                                "_fresh_request_identity",
-                                "VPLink turnstile bind",
-                                "Fresh proxy for this",
+                                "FreeShare blocked datacenter",
+                                "handing off to browser/tunnel",
+                                "g2s_safelink_retry",
+                                "odiadance_recover",
+                                "Vipshort WP-safelink",
+                                "vipshort_wpsafe_hops",
+                                "newwpsafelink",
+                                "linkgate",
+                                "_try_linkgate_direct",
+                                "visit/sponsor",
+                                "vipshort_m_url",
+                                "WP-safelink hops done — trying",
+                                "Trying m.vipshort final",
+                                "premature slt link",
+                                "m.vipshort links/go",
+                                "slt=",
+                            ),
+                            "g2s/solver.py": (
+                                "turnstile-solver-fixed",
+                                "hybrid_camoufox",
                             ),
                             "g2s/code_sync.py": (
                                 "prefer_deploy",
@@ -163,25 +168,38 @@ class CodeSyncManager:
                                 "deploy_prefer",
                                 "FEATURE_MARKERS",
                             ),
-                            "server.py": (
-                                "Rotated",
-                                "_rotate_hosts",
-                                "v2links.",
+                            "g2s/scripts.py": (
+                                "reSlt",
+                                "m.vipshort.in",
+                                "slt=",
+                            ),
+                            "g2s/ai_engineer.py": (
+                                "root_cause_patterns",
+                                "Stuck on blog hop loop",
+                                "live verification",
+                            ),
+                            "config.json": (
+                                "turnstile-solver-fixed-production",
                             ),
                         }
                         markers = _FEATURE_MARKERS.get(rel_path) or ()
-                        local_has_features = bool(markers) and any(m in local_content for m in markers)
-                        mongo_has_features = bool(markers) and any(m in mongo_content for m in markers)
-                        prefer_deploy = bool(local_has_features and not mongo_has_features)
+                        local_markers_hit = [m for m in markers if m in local_content]
+                        mongo_markers_hit = [m for m in markers if m in mongo_content]
+                        local_has_features = bool(local_markers_hit)
+                        mongo_has_features = bool(mongo_markers_hit)
+                        # Prefer deploy if local has markers mongo lacks, OR local has MORE markers
+                        exclusive = [m for m in local_markers_hit if m not in mongo_markers_hit]
+                        prefer_deploy = bool(local_has_features and (not mongo_has_features or exclusive))
 
-                        # Env override: G2S_PREFER_DEPLOY=1 always keeps container files
-                        if str(os.environ.get("G2S_PREFER_DEPLOY", "")).strip().lower() in (
-                            "1", "true", "yes", "on",
-                        ):
-                            prefer_deploy = True
+                        # Default ON: deploy wins on feature-bearing files unless explicitly disabled
+                        prefer_env = str(os.environ.get("G2S_PREFER_DEPLOY", "1")).strip().lower()
+                        if prefer_env in ("1", "true", "yes", "on"):
+                            if local_has_features:
+                                prefer_deploy = True
+                        elif prefer_env in ("0", "false", "no", "off"):
+                            prefer_deploy = False
 
                         if prefer_deploy:
-                            # Push local deploy version INTO Mongo so next boots keep it
                             try:
                                 await self.db.db.code_files.update_one(
                                     {"_id": rel_path},
