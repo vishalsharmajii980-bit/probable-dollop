@@ -2514,6 +2514,7 @@ class Bypasser:
         alias = m.group(1)
         if alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
             return False
+        job.g2s_direct_tried = True
 
         import html as _html
         import random
@@ -2535,7 +2536,31 @@ class Bypasser:
                     return act, fields
             return None, None
 
-        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        # Pick optional tunnel/residential proxy for THIS link (rotate every call)
+        tunnel_px = None
+        try:
+            px_pool = list(self._get_active_tunnel_proxies() or [])
+            random.shuffle(px_pool)
+            for cand in px_pool:
+                c = (cand or "").strip()
+                if c and not self._is_proxy_expired(c):
+                    tunnel_px = c
+                    break
+            if not tunnel_px:
+                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
+                if cfg_px and not self._is_proxy_expired(cfg_px):
+                    tunnel_px = cfg_px
+        except Exception:
+            tunnel_px = None
+        if tunnel_px:
+            try:
+                from urllib.parse import urlparse as _up
+                _pu = _up(tunnel_px)
+                _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
+                job.log(f"🔄 Fresh tunnel proxy for get2short: {_shown}")
+            except Exception:
+                job.log("🔄 Fresh tunnel proxy for get2short")
+
         g2s_origin_hosts = {
             "get2short.com",
             "link.get2short.com",
@@ -2548,6 +2573,18 @@ class Bypasser:
 
         class _G2SOriginResolver(aiohttp.abc.AbstractResolver):
             async def resolve(self, host, port=0, family=0):
+                # When using a real tunnel proxy, do NOT pin to origin IP — let proxy resolve DNS
+                if tunnel_px:
+                    import socket as _socket
+                    infos = _socket.getaddrinfo(host, port, type=_socket.SOCK_STREAM)
+                    return [{
+                        "hostname": host,
+                        "host": sa[0],
+                        "port": sa[1],
+                        "family": fam,
+                        "proto": proto,
+                        "flags": 0,
+                    } for fam, typ, proto, canon, sa in infos]
                 ip = "66.116.207.125" if host in g2s_origin_hosts else host
                 return [{
                     "hostname": host,
@@ -2564,30 +2601,40 @@ class Bypasser:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
-        conn = aiohttp.TCPConnector(resolver=_G2SOriginResolver(), ssl=ssl_ctx)
-        jar = aiohttp.CookieJar(unsafe=True)
         ua = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         )
-        base_headers = {
+        # Retry up to 3 times with a fresh IP each attempt (ip_risk / csrf miss recovery)
+        last_err = None
+        for _g2s_try in range(3):
+          fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+          base_headers = {
             "User-Agent": ua,
             "CF-Connecting-IP": fake_ip,
             "X-Forwarded-For": fake_ip,
             "X-Real-IP": fake_ip,
             "CF-IPCountry": "IN",
-        }
-        try:
-            async with aiohttp.ClientSession(
+          }
+          if _g2s_try > 0:
+            job.log(f"🔄 get2short retry {_g2s_try+1}/3 with fresh IP {fake_ip}")
+          conn = aiohttp.TCPConnector(resolver=_G2SOriginResolver(), ssl=ssl_ctx)
+          jar = aiohttp.CookieJar(unsafe=True)
+          try:
+            session_kw = dict(
                 connector=conn,
                 cookie_jar=jar,
                 headers=base_headers,
                 timeout=aiohttp.ClientTimeout(total=95, connect=10),
-            ) as s:
+            )
+            async with aiohttp.ClientSession(**session_kw) as s:
+                # Attach proxy to requests via default when tunnel is available
+                _req_proxy = tunnel_px  # used on each request below
                 start_t0 = time.monotonic()
                 g2s_url = f"https://get2short.com/{alias}"
-                job.log(f"Opening {g2s_url}")
-                async with s.get(g2s_url, allow_redirects=False) as r0:
+                job.log(f"Opening {g2s_url}" + (f" via tunnel" if tunnel_px else f" (origin IP, headers {fake_ip})"))
+                _px0 = {"proxy": tunnel_px} if tunnel_px else {}
+                async with s.get(g2s_url, allow_redirects=False, **_px0) as r0:
                     h0 = await r0.text()
                     if r0.status == 404 or (
                         "was not found on this server" in h0.lower()
@@ -2596,7 +2643,13 @@ class Bypasser:
                         raise BypassError("Shortener link not found (404 on get2short.com)")
                     csrf_m = re.search(r'var\s+csrfToken\s*=\s*"([^"]+)"', h0)
                     if not csrf_m:
-                        return False
+                        # Page may be blocked/challenge — retry with fresh IP
+                        if "ip_risk" in h0.lower() or "restricted" in h0.lower() or "blocked" in h0.lower():
+                            job.log(f"⚠ get2short page blocked (IP risk) — retrying with fresh identity…")
+                        else:
+                            job.log("⚠ get2short csrfToken missing — retrying…")
+                        last_err = "csrf_missing"
+                        continue
                     csrf0 = csrf_m.group(1)
                 job.steps.append(g2s_url)
 
@@ -2607,6 +2660,7 @@ class Bypasser:
                 fd0.add_field("brands[0][brand]", "Google Chrome")
                 fd0.add_field("brands[0][version]", "131")
                 next_u = f"https://jkdamours.com/HQsafe.php?HQlink={alias}"
+                _px = {"proxy": tunnel_px} if tunnel_px else {}
                 async with s.post(
                     "https://get2short.com/links/protection-browser-check",
                     data=fd0,
@@ -2616,9 +2670,12 @@ class Bypasser:
                         "Origin": "https://get2short.com",
                         "Referer": g2s_url,
                     },
+                    **_px,
                 ) as r0b:
                     if r0b.status != 200:
-                        return False
+                        job.log(f"⚠ protection-browser-check status={r0b.status} — retrying…")
+                        last_err = f"check_status_{r0b.status}"
+                        continue
                     try:
                         jb0 = await r0b.json(content_type=None)
                         if isinstance(jb0, dict) and jb0.get("nextUrl"):
@@ -2795,10 +2852,15 @@ class Bypasser:
                 if isinstance(data, dict) and data.get("status") == "success" and data.get("url"):
                     if await self._finalize_or_unwrap_dest(job, data["url"], wp_url, "links/go API"):
                         return True
-        except BypassError:
+                    return True
+            # success path didn't return — retry with new IP
+            last_err = "no destination from links/go"
+          except BypassError:
             raise
-        except Exception:
-            pass
+          except Exception as e:
+            last_err = e
+            job.log(f"⚠ get2short direct attempt {_g2s_try+1} failed: {type(e).__name__}: {e}")
+            continue
         return False
 
     async def _try_arolinks_direct(self, job: Job) -> bool:
@@ -4342,7 +4404,9 @@ class Bypasser:
         return False
 
     async def _try_babylinks_direct(self, job: Job) -> bool:
-        """Direct lock-free aiohttp origin bypass for babylinks.in (~12.5s via 66.116.207.125)."""
+        """Direct lock-free aiohttp origin bypass for babylinks.in (~12.5s via 66.116.207.125).
+        Fresh Indian IP headers + rotated tunnel/residential proxy on EVERY link (get2short style).
+        """
         alias = urlparse(job.start_url).path.strip("/")
         if not alias or "/" in alias or alias.lower() in ("links", "auth", "admin", "member", "pages", "api"):
             return False
@@ -4357,7 +4421,34 @@ class Bypasser:
             or (DYNAMIC_RULES.get("origin_ips") or {}).get("go.babylinks.in")
             or "66.116.207.125"
         )
-        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        # Fresh mobile IP + optional tunnel proxy for THIS link only (rotate every solve)
+        fake_ip = f"49.{random.randint(15, 44)}.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        tunnel_px = None
+        try:
+            px_pool = list(self._get_active_tunnel_proxies() or [])
+            random.shuffle(px_pool)
+            for cand in px_pool:
+                c = (cand or "").strip()
+                if c and not self._is_proxy_expired(c):
+                    tunnel_px = c
+                    break
+            if not tunnel_px:
+                cfg_px = (getattr(self.cfg, "proxy", None) or "").strip()
+                if cfg_px and not self._is_proxy_expired(cfg_px):
+                    tunnel_px = cfg_px
+        except Exception:
+            tunnel_px = None
+        if tunnel_px:
+            try:
+                from urllib.parse import urlparse as _up
+                _pu = _up(tunnel_px)
+                _shown = f"{_pu.scheme}://{_pu.hostname}:{_pu.port}" if _pu.hostname else tunnel_px[:40]
+                job.log(f"🔄 Fresh session proxy for babylinks.in: {_shown} (IP headers {fake_ip})")
+            except Exception:
+                job.log(f"🔄 Fresh session IP headers for babylinks.in ({fake_ip})")
+        else:
+            job.log(f"🔄 Fresh session IP headers for babylinks.in ({fake_ip})")
+
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -4366,12 +4457,15 @@ class Bypasser:
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         )
         hdrs_b = {
-            "Host": "babylinks.in",
             "User-Agent": ua,
             "Accept-Language": "en-US,en;q=0.9",
             "CF-Connecting-IP": fake_ip,
+            "X-Forwarded-For": fake_ip,
+            "X-Real-IP": fake_ip,
             "CF-IPCountry": "IN",
         }
+        if not tunnel_px:
+            hdrs_b["Host"] = "babylinks.in"
         try:
             jar_blog = aiohttp.CookieJar(unsafe=True)
             async with aiohttp.ClientSession(
@@ -4384,12 +4478,11 @@ class Bypasser:
                     timeout=aiohttp.ClientTimeout(total=30, connect=10),
                 ) as s_orig:
                     job.log(f"Opening {job.start_url}")
-                    async with s_orig.get(
-                        f"https://{origin_ip}/{alias}",
-                        headers=hdrs_b,
-                        ssl=ssl_ctx,
-                        allow_redirects=False,
-                    ) as r0:
+                    _baby_url = f"https://babylinks.in/{alias}" if tunnel_px else f"https://{origin_ip}/{alias}"
+                    _baby_kw = {"headers": hdrs_b, "ssl": ssl_ctx, "allow_redirects": False}
+                    if tunnel_px:
+                        _baby_kw["proxy"] = tunnel_px
+                    async with s_orig.get(_baby_url, **_baby_kw) as r0:
                         if r0.status == 404:
                             raise BypassError("Shortener link not found (404 on babylinks.in)")
                         c_baby = {}
@@ -4526,20 +4619,25 @@ class Bypasser:
                     for ref_try in (expected_ref_root, cur_u, "https://jobsheel.com/"):
                         cookie_str = "; ".join(f"{k}={v}" for k, v in c_baby.items())
                         hdrs_go = {
-                            "Host": "go.babylinks.in",
                             "User-Agent": ua,
                             "Accept-Language": "en-US,en;q=0.9",
                             "CF-Connecting-IP": fake_ip,
+                            "X-Forwarded-For": fake_ip,
+                            "X-Real-IP": fake_ip,
                             "CF-IPCountry": "IN",
                             "Referer": ref_try,
                             "Cookie": cookie_str,
                         }
-                        async with s_orig.get(
-                            f"https://{origin_ip}{wp_path}",
-                            headers=hdrs_go,
-                            ssl=ssl_ctx,
-                            allow_redirects=False,
-                        ) as rg1:
+                        if not tunnel_px:
+                            hdrs_go["Host"] = "go.babylinks.in"
+                        _go_url = (
+                            f"https://go.babylinks.in{wp_path}" if tunnel_px
+                            else f"https://{origin_ip}{wp_path}"
+                        )
+                        _go_kw = {"headers": hdrs_go, "ssl": ssl_ctx, "allow_redirects": False}
+                        if tunnel_px:
+                            _go_kw["proxy"] = tunnel_px
+                        async with s_orig.get(_go_url, **_go_kw) as rg1:
                             if rg1.status == 404:
                                 raise BypassError("Shortener link not found (404 on go.babylinks.in)")
                             for sc in rg1.headers.getall("Set-Cookie", []):
@@ -4578,12 +4676,14 @@ class Bypasser:
                         "Accept": "application/json, text/javascript, */*; q=0.01",
                     }
                     job.log("Submitting final form to fetch destination…")
-                    async with s_orig.post(
-                        f"https://{origin_ip}/links/go",
-                        data=fields,
-                        headers=go_hdrs,
-                        ssl=ssl_ctx,
-                    ) as rg2:
+                    _lg_url = (
+                        "https://go.babylinks.in/links/go" if tunnel_px
+                        else f"https://{origin_ip}/links/go"
+                    )
+                    _lg_kw = {"data": fields, "headers": go_hdrs, "ssl": ssl_ctx}
+                    if tunnel_px:
+                        _lg_kw["proxy"] = tunnel_px
+                    async with s_orig.post(_lg_url, **_lg_kw) as rg2:
                         dg2 = await rg2.json(content_type=None)
                     if isinstance(dg2, dict) and dg2.get("status") == "success" and dg2.get("url"):
                         dest = str(dg2["url"]).strip()
@@ -9049,8 +9149,19 @@ class Bypasser:
                     reason = data.get("reason")
                     if data.get("status") != "success" and reason in ("ip_risk_blocked", "vpn_blocked",
                                                                       "brave_blocked"):
-                        job.fatal = (f"get2short blocked this IP/browser ({reason}). Use a home/mobile "
-                                     "connection (or set a residential proxy) with VPN off.")
+                        job.log(
+                            f"⚠ get2short {reason} on browser path — retry via origin/direct if possible"
+                        )
+                        job.g2s_ip_risk = reason
+                        # Only fatal after direct origin path already tried
+                        if getattr(job, "g2s_direct_tried", False):
+                            job.fatal = (
+                                f"get2short blocked this IP/browser ({reason}). "
+                                "Use a home/mobile connection (or set a residential proxy) with VPN off."
+                            )
+                        else:
+                            # Force a direct-origin retry on next attempt cycle
+                            job.pending_redirect = job.start_url
                     return
                 if "/tc" in u and resp.request.method == "POST" and resp.status == 200:
                     try:
