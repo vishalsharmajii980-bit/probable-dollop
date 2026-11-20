@@ -285,6 +285,7 @@ DEFAULT_SHORTENERS = [
     {"domain": "exeygo.com", "name": "ExeyGo", "desc": "2-Step Turnstile + VHit Gate"},
     {"domain": "droplink.co", "name": "DropLink", "desc": "2-Hop Safelink + /links/go"},
     {"domain": "babylinks.in", "name": "BabyLinks", "desc": "JobSheel Safelink + /links/go"},
+    {"domain": "titan-links.com", "name": "TitanLinks", "desc": "AdLinkFly + WP Safelink (fresh proxy per link)"},
     {"domain": "liteshort.com", "name": "LiteShort", "desc": "Multi-Step Blog + AntiBypass"},
     {"domain": "nowshort.com", "name": "NowShort", "desc": "Safelink + Turnstile"},
     {"domain": "linksflys.com", "name": "LinksFlys", "desc": "Safelink Redirect + /links/go"},
@@ -659,7 +660,7 @@ class Database:
             "show_browser": bool(raw.get("show_browser", False)),
             "no_accel_hosts": list(raw.get("no_accel_hosts") or [
                 "get2short.com", "liteshort.com", "nowshort.com", "linksflys.com",
-                "vplink.in", "arolinks.com", "babylinks.in", "alpha-links.in", "urllinkshort.in",
+                "vplink.in", "arolinks.com", "babylinks.in", "alpha-links.in", "urllinkshort.in", "titan-links.com",
                 "lksfy.com", "softurl.in", "shortwala.com", "earnlinks.in", "inshorturl.in", "inshorturl.com"
             ]),
             "shortener_tunnels": {
@@ -709,6 +710,8 @@ class Database:
                     "sub.odiadance.com": "66.116.207.125",
                     "babylinks.in": "66.116.207.125",
                     "go.babylinks.in": "66.116.207.125",
+                    "titan-links.com": "66.116.207.125",
+                    "www.titan-links.com": "66.116.207.125",
                     "arolinks.com": "82.25.97.148",
                     "www.arolinks.com": "82.25.97.148",
                     "vplink.in": "82.25.97.148",

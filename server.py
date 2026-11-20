@@ -258,7 +258,7 @@ async def resolve_link_core(
             _rotate_hosts = (
                 "arolinks.", "vplink.", "v2links.", "urlspay.", "droplink.",
                 "gplinks.", "shrinkme.", "srnky.", "shrinkearn.", "shrinke.me",
-                "get2short.", "babylinks.",
+                "get2short.", "babylinks.", "titan-links.",
             )
             if any(h in _kl for h in _rotate_hosts):
                 import random as _rnd
