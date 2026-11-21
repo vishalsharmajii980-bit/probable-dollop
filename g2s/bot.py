@@ -220,6 +220,14 @@ def format_user_error_message(source_url: str) -> str:
 
 
 class TelegramBot:
+    # rev39: class-level fallbacks for the Loop Mode state. code_sync.hot_reload_modules swaps
+    # inst.__class__ on hot reload WITHOUT re-running __init__, so an instance constructed from
+    # an older bot.py would otherwise raise AttributeError on the first /loop_setup.
+    _user_states: dict[int, dict[str, Any]] = {}
+    _loop_configs: dict[int, dict[str, Any]] = {}
+    _loop_tasks: dict[int, asyncio.Task] = {}
+    _loop_stop_flags: dict[int, bool] = {}
+
     def __init__(self, db: Database, resolve_fn, proxy_test_fn, set_proxy_fn, ai_engineer=None, code_sync=None):
         self.db = db
         self.resolve_fn = resolve_fn
@@ -1991,6 +1999,24 @@ class TelegramBot:
         else:
             await self.send_message(chat_id, txt, reply_to=msg_id, reply_markup=kb)
 
+    async def _loop_guard(self):
+        """rev39 self-heal for hot-reloaded instances.
+
+        code_sync swaps ``inst.__class__`` when g2s/bot.py changes but never re-runs
+        ``__init__``, and the Telegram command menu was registered at boot by whatever class
+        was alive then. Restore any missing Loop Mode state on the instance and re-register
+        the menu so /loop_setup works on a running panel without a restart.
+        """
+        for _n in ("_user_states", "_loop_configs", "_loop_tasks", "_loop_stop_flags"):
+            if not isinstance(getattr(self, _n, None), dict):
+                setattr(self, _n, {})
+        if not getattr(self, "_loop_menu_ok", False):
+            try:
+                await self._register_commands()
+                self._loop_menu_ok = True
+            except Exception as _e:
+                print(f"loop menu re-register skipped: {_e}", flush=True)
+
     async def _cmd_loop_setup(
         self,
         chat_id: int,
@@ -1998,6 +2024,7 @@ class TelegramBot:
         from_user: dict,
         msg_id: int | None = None,
     ):
+        await self._loop_guard()
         pstat = self.db.get_user_premium_status(user_id)
         if not pstat.get("is_premium") and not self.db.is_admin(user_id):
             await self.send_message(
@@ -2038,6 +2065,7 @@ class TelegramBot:
         msg_id: int,
         text: str,
     ):
+        await self._loop_guard()
         state = self._user_states.get(user_id) or {}
         step = state.get("step")
 
@@ -2196,6 +2224,7 @@ class TelegramBot:
         from_user: dict,
         msg_id: int | None = None,
     ):
+        await self._loop_guard()
         pstat = self.db.get_user_premium_status(user_id)
         if not pstat.get("is_premium") and not self.db.is_admin(user_id):
             await self.send_message(
@@ -2244,6 +2273,7 @@ class TelegramBot:
         )
 
     async def _cmd_loop_stop(self, chat_id: int, user_id: int, msg_id: int | None = None):
+        await self._loop_guard()
         self._loop_stop_flags[user_id] = True
         task = self._loop_tasks.get(user_id)
         if task and not task.done():
@@ -2266,6 +2296,7 @@ class TelegramBot:
             )
 
     async def _cmd_loop_status(self, chat_id: int, user_id: int, msg_id: int | None = None):
+        await self._loop_guard()
         cfg = self._loop_configs.get(user_id)
         task = self._loop_tasks.get(user_id)
         running = bool(task and not task.done())

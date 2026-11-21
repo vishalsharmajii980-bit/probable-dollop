@@ -536,6 +536,19 @@ class CodeSyncManager:
                         new_cls = getattr(mod, cls_name, None)
                         if inst is not None and new_cls is not None:
                             inst.__class__ = new_cls
+                            if mod_name == "g2s.bot":
+                                # rev39: the class swap never re-runs __init__, so an instance
+                                # built from an older bot.py lacks the Loop Mode state dicts
+                                # and its Telegram menu predates the loop commands.
+                                for _ln in ("_user_states", "_loop_configs",
+                                            "_loop_tasks", "_loop_stop_flags"):
+                                    if not isinstance(getattr(inst, _ln, None), dict):
+                                        setattr(inst, _ln, {})
+                                try:
+                                    await inst._register_commands()
+                                except Exception as _le:
+                                    print(f"loop menu re-register after hot reload: {_le}",
+                                          flush=True)
                         if new_cls is not None and hasattr(main_mod, cls_name):
                             setattr(main_mod, cls_name, new_cls)
                 except Exception as e:
