@@ -488,11 +488,30 @@ class TurnstileSolver:
             or self._session.closed
             or self._session_loop is not loop
         ):
+            # rev35: close the stale session first — replacing it leaked a connector
+            # ("Unclosed client session" in the panel log) on every event-loop switch.
+            _stale = self._session
+            if _stale is not None and not _stale.closed:
+                try:
+                    await _stale.close()
+                except Exception:
+                    pass
             self._session = aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(limit=32, ttl_dns_cache=300),
             )
             self._session_loop = loop
         return self._session
+
+    async def aclose(self) -> None:
+        """Close the persistent remote-solver session (called on engine shutdown)."""
+        _s = self._session
+        self._session = None
+        self._session_loop = None
+        if _s is not None and not _s.closed:
+            try:
+                await _s.close()
+            except Exception:
+                pass
 
     async def health(self) -> dict:
         remote_info = {}
@@ -577,11 +596,13 @@ class TurnstileSolver:
                     )
                     err_msg = data.get("error") if isinstance(data, dict) else str(data)
                     last_err = SolverError(f"{err_code}: {err_msg}")
-                    if status_code in (401, 403, 500, 502, 503, 504) or err_code in (
+                    if status_code in (401, 403, 404, 410, 500, 502, 503, 504) or err_code in (
                         "unauthorized",
                         "forbidden",
                         "invalid_api_key",
                     ):
+                        # rev36: 404/410 == the solver deployment is gone (Railway app deleted).
+                        # Skip the remote for 10 min instead of paying a dead round-trip per solve.
                         self._remote_unauth_until = time.monotonic() + 1800.0
                         _GLOBAL_REMOTE_UNAUTH_UNTIL = time.monotonic() + 1800.0
                         log.info(

@@ -648,7 +648,7 @@ class Database:
             "solver_url": (
                 os.environ.get("G2S_SOLVER_URL")
                 or raw.get("solver_url")
-                or "https://turnstile-solver-fixed-production-283c.up.railway.app"
+                or "https://turnstile-solver-n.up.railway.app"
             ).rstrip("/"),
             "solver_api_key": os.environ.get("G2S_SOLVER_API_KEY") or raw.get("solver_api_key"),
             "accel_factor": float(os.environ.get("G2S_ACCEL_FACTOR") or raw.get("accel_factor", 0.1)),

@@ -41,7 +41,7 @@ cfg = Config.load(CFG_PATH)
 
 def _apply_db_settings_to_cfg():
     s = db.settings
-    cfg.solver_url = (s.get("solver_url") or "https://turnstile-solver-fixed-production-283c.up.railway.app").rstrip("/")
+    cfg.solver_url = (s.get("solver_url") or "https://turnstile-solver-n.up.railway.app").rstrip("/")
     cfg.solver_api_key = s.get("solver_api_key")
     # Default browser mode is Direct (None); tunnel proxy is applied dynamically per-shortener
     # when a shortener's tunnel toggle is enabled in the Admin Panel.

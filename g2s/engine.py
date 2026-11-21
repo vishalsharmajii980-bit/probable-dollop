@@ -80,7 +80,7 @@ def _get_aro_host_lock(short_host: str) -> asyncio.Lock:
 
 @dataclass
 class Config:
-    solver_url: str = "https://turnstile-solver-fixed-production-283c.up.railway.app"
+    solver_url: str = "https://turnstile-solver-n.up.railway.app"
     solver_api_key: str | None = None
     browser_channel: str | None = "chrome"     # "chrome", "msedge" or None (bundled chromium)
     headless: bool = False                     # headless is often refused by Cloudflare
@@ -541,6 +541,21 @@ DEFAULT_ORIGIN_IPS = {
     "sub.odiadance.com": "66.116.207.125",
     "babylinks.in": "66.116.207.125",
     "go.babylinks.in": "66.116.207.125",
+    # rev37: gplinks family + its WP blog (skrresults.com) — SPF-leaked LiteSpeed origin
+    # (`v=spf1 +a +mx +ip4:148.113.47.229 ~all` on gplinks.co AND skrresults.com)
+    "gplinks.co": "148.113.47.229",
+    "www.gplinks.co": "148.113.47.229",
+    "link.gplinks.co": "148.113.47.229",
+    "go.gplinks.co": "148.113.47.229",
+    "open.gplinks.co": "148.113.47.229",
+    "m.gplinks.co": "148.113.47.229",
+    "ai3.gplinks.co": "148.113.47.229",
+    "gplinks.in": "148.113.47.229",
+    "www.gplinks.in": "148.113.47.229",
+    "gplinks.com": "148.113.47.229",
+    "gplinks.org": "148.113.47.229",
+    "skrresults.com": "148.113.47.229",
+    "www.skrresults.com": "148.113.47.229",
     "arolinks.com": "82.25.97.148",
     "www.arolinks.com": "82.25.97.148",
     "vplink.in": "82.25.97.148",
@@ -1222,6 +1237,24 @@ class Bypasser:
         except Exception:
             return False
 
+    # ---------------------------------------------------------------- residential identity
+    # Every origin-pinned solve spoofs an Indian residential client IP (the LiteSpeed origin
+    # trusts CF-Connecting-IP because it only ever sees Cloudflare in front of it). A NEW
+    # identity is drawn for EVERY solve and EVERY retry so no two attempts share an IP.
+    @staticmethod
+    def _new_res_ip() -> str:
+        import random as _rnd
+        return f"49.36.{_rnd.randint(10, 240)}.{_rnd.randint(10, 240)}"
+
+    @staticmethod
+    def _res_ip_headers(ip: str) -> dict:
+        return {
+            "CF-Connecting-IP": ip,
+            "X-Forwarded-For": ip,
+            "X-Real-IP": ip,
+            "CF-IPCountry": "IN",
+        }
+
     _tunnel_seen_device = False
 
     def _fresh_live_tunnel_candidates(self) -> list[dict]:
@@ -1611,6 +1644,13 @@ class Bypasser:
             return None
 
     async def close(self):
+        # rev35: close the solver's persistent aiohttp session (was leaked at shutdown)
+        try:
+            _slv = getattr(self, "solver", None)
+            if _slv is not None and hasattr(_slv, "aclose"):
+                await _slv.aclose()
+        except Exception:
+            pass
         if not self._is_worker and getattr(self, "_workers", None):
             for w in list(self._workers):
                 if w is not self:
@@ -2375,8 +2415,14 @@ class Bypasser:
             if job.fatal:
                 raise BypassError(job.fatal)
         if job.base == "babylinks.in":
-            if await self._try_babylinks_direct(job):
-                return _done()
+            for _bb in range(3):
+                if _bb:
+                    log(f"🔁 babylinks attempt {_bb + 1}/3 with a NEW residential proxy identity…")
+                if await self._try_babylinks_direct(job):
+                    return _done()
+                if job.fatal:
+                    raise BypassError(job.fatal)
+                await asyncio.sleep(1.0)
         if job.base in ("liteshort.com", "nowshort.com"):
             if await self._try_liteshort_nowshort_direct(job):
                 return _done()
@@ -2403,10 +2449,14 @@ class Bypasser:
             # identity and an odiadance Referer — so run the direct solver FIRST instead of
             # burning 45s+45s waiting for a tunnel device that may never come online.
             log("⚡ titan fast path — origin-pinned gate, NEW residential proxy identity for this solve")
-            if await self._try_titan_links_direct(job):
-                return _done()
-            if job.fatal:
-                raise BypassError(job.fatal)
+            for _fast in range(3):
+                if _fast:
+                    log(f"🔁 titan gate attempt {_fast + 1}/3 with a NEW residential proxy identity…")
+                if await self._try_titan_links_direct(job):
+                    return _done()
+                if job.fatal:
+                    raise BypassError(job.fatal)
+                await asyncio.sleep(1.0)
             # Fallback: drive the chain through a residential tunnel/proxy if one exists.
             _tp = [c.get("proxy_url") for c in (getattr(self, "_last_proxy_candidates", None) or []) if c.get("proxy_url")]
             for _c in self._fresh_live_tunnel_candidates():
@@ -2856,7 +2906,7 @@ class Bypasser:
         fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
 
         def _new_res_ip():
-            return f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+            return self._new_res_ip()
 
         g2s_origin_hosts = {
             "get2short.com",
@@ -5309,11 +5359,12 @@ class Bypasser:
         html = ""
         _retries = 0
         for _g in range(12):
-            # rev31: every gate attempt runs through a FRESH residential identity
-            if ip_rotator is not None:
+            # rev36: attempt 1 keeps THIS solve's fresh identity (consistent with the rest of
+            # the chain); every RETRY draws a NEW residential identity.
+            if ip_rotator is not None and _g:
                 try:
                     _nip = ip_rotator()
-                    job.log(f"  🔀 gate attempt {_g + 1} via NEW residential proxy identity {_nip}")
+                    job.log(f"  🔀 gate retry {_g + 1} via NEW residential proxy identity {_nip}")
                 except Exception:
                     pass
             try:
@@ -5439,7 +5490,11 @@ class Bypasser:
 
         import random as _random
         import ssl as _ssl
-        fake_ip = f"49.36.{_random.randint(10, 240)}.{_random.randint(10, 240)}"  # IN residential-looking
+        fake_ip = self._new_res_ip()  # rev34: NEW residential identity for EVERY titan solve
+        try:
+            job.log(f"  🔀 titan solve via NEW residential proxy identity {fake_ip}")
+        except Exception:
+            pass
         try:
             conn = None
             if proxy_url:
@@ -5494,7 +5549,7 @@ class Bypasser:
                     _ip_slot = {"ip": fake_ip}
 
                     def _bump_ip():
-                        _ip_slot["ip"] = f"49.36.{_random.randint(10, 240)}.{_random.randint(10, 240)}"
+                        _ip_slot["ip"] = self._new_res_ip()
                         return _ip_slot["ip"]
 
                     def _gate_hdrs(extra=None):
@@ -5502,12 +5557,10 @@ class Bypasser:
                         # VERIFIED LIVE: server.titan-links.com/<alias> serves the go-link gate
                         # page ONLY when Referer is an odiadance.com ad page (else 307 -> ad net)
                         h["Referer"] = "https://sub.odiadance.com/"
-                        if conn is not None:
-                            _i = _ip_slot["ip"]
-                            h["CF-Connecting-IP"] = _i
-                            h["X-Forwarded-For"] = _i
-                            h["X-Real-IP"] = _i
-                            h["CF-IPCountry"] = "IN"
+                        # rev34: rotate on EVERY gate attempt unless a real residential proxy is
+                        # in use (then the proxy itself is the rotating identity)
+                        if not (rkw or {}).get("proxy"):
+                            h.update(self._res_ip_headers(_ip_slot["ip"]))
                         return h
                     for _gurl in (f"https://server.titan-links.com/{alias}",
                                   f"https://server.titan-links.com/?v={alias}",
@@ -6506,121 +6559,188 @@ class Bypasser:
         return False
 
     async def _try_gplinks_direct(self, job: Job) -> bool:
-        """Direct aiohttp bypass for gplinks.co / gplinks.in / gplinks.com / gplinks.org (~95s, parallelizable)."""
+        """Direct aiohttp bypass for gplinks.co / gplinks.in / gplinks.com / gplinks.org.
+
+        rev37 — rewritten after live measurement (292s / 308s cached solves -> ~102s):
+          * gplinks.co AND its WP blog (skrresults.com) sit on ONE SPF-leaked LiteSpeed box
+            (148.113.47.229 — `v=spf1 +a +mx +ip4:148.113.47.229 ~all` on both domains) behind
+            Cloudflare, exactly like titan-links/get2short. Pinning that origin skips the CF edge
+            ASN gate, so a datacenter IP works and EVERY solve can carry a NEW residential
+            identity (new IP per link process — the user requirement).
+          * the global handshake/final locks + 10.5s inter-job pacing + 6-retry loops existed to
+            dodge same-IP 403/429 at the CF edge. With a per-solve identity they only added
+            queueing delay, so they are gone (that queueing was most of the 160-300s).
+          * Turnstile now starts right after the handshake and solves IN PARALLEL with the
+            server-side verification window (the live solver answers in 3-6s).
+          * the verification window is SERVER-ENFORCED and cannot be skipped: 50s and 70s both
+            302 to /link-error?error_code=not_enough_time, 88s and 92s succeed. 28s/page + 4s is
+            used, and a `not_enough_time` bounce now waits the shortfall and retries instead of
+            failing the whole job.
+        """
         alias = urlparse(job.start_url).path.strip("/")
-        if not alias or "/" in alias or alias.lower() in ("links", "auth", "admin", "member", "pages", "api", "link-error"):
+        if not alias or "/" in alias or alias.lower() in (
+            "links", "auth", "admin", "member", "pages", "api", "link-error", "subscriber",
+        ):
             return False
 
         import html as _html
+        import ssl as _ssl
         import aiohttp
 
-        global _GPLINKS_LAST_FINAL
         ua = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         )
+
+        # ---- origin pinning: SPF-leaked box shared by the gplinks family + its WP blog
+        _oi = DYNAMIC_RULES.get("origin_ips") or {}
+        gpl_origin = _oi.get("gplinks.co") or _oi.get("gplinks.in") or "148.113.47.229"
+        pin_hosts = {h for h, ip in _oi.items() if ip == gpl_origin}
+        pin_hosts |= {
+            "gplinks.co", "www.gplinks.co", "link.gplinks.co", "go.gplinks.co",
+            "open.gplinks.co", "m.gplinks.co", "ai3.gplinks.co",
+            "gplinks.in", "www.gplinks.in", "gplinks.com", "gplinks.org",
+            "skrresults.com", "www.skrresults.com",
+        }
+
+        class _GplOriginResolver(aiohttp.abc.AbstractResolver):
+            async def resolve(self, host, port=0, family=0):
+                return [{
+                    "hostname": host,
+                    "host": gpl_origin if host in pin_hosts else host,
+                    "port": port, "family": family, "proto": 0, "flags": 0,
+                }]
+
+            async def close(self):
+                pass
+
+        ssl_ctx = _ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = _ssl.CERT_NONE
+        conn = aiohttp.TCPConnector(resolver=_GplOriginResolver(), ssl=ssl_ctx)
+
+        # ---- NEW residential identity for this solve; rotated again on every retry
+        res_ip = self._new_res_ip()
+        idh = self._res_ip_headers(res_ip)
+        job.log(f"🔀 gplinks solve via NEW residential proxy identity {res_ip} (origin-pinned {gpl_origin})")
+
+        def _h(extra=None):
+            hh = dict(idh)
+            if extra:
+                hh.update(extra)
+            return hh
+
         jar = aiohttp.CookieJar(unsafe=True)
 
-        async def _req_retry(s: aiohttp.ClientSession, method: str, url: str, retries: int = 6, **kwargs):
+        async def _req_retry(s, method, url, retries=3, **kwargs):
+            last = 403
             for att in range(retries):
                 try:
                     async with s.request(method, url, **kwargs) as r:
                         body = await r.text()
+                        if r.status == 404:
+                            return 404, dict(r.headers), body
                         if r.status not in (403, 429, 502, 503):
                             return r.status, dict(r.headers), body
+                        last = r.status
+                except asyncio.CancelledError:
+                    raise
                 except Exception:
                     pass
-                await asyncio.sleep(1.0 + 0.4 * att)
-            return 403, {}, ""
+                await asyncio.sleep(0.6 + 0.3 * att)
+            return last, {}, ""
+
+        def _steps_payload(step_i, vid_):
+            return {
+                "form_name": "ads-track-data",
+                "step_id": str(step_i),
+                "ad_impressions": "2",
+                "visitor_id": vid_,
+                "next_target": "",
+            }
 
         try:
             async with aiohttp.ClientSession(
                 cookie_jar=jar,
                 headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"},
-                timeout=aiohttp.ClientTimeout(total=190, connect=12),
+                connector=conn,
+                timeout=aiohttp.ClientTimeout(total=190, connect=10, sock_connect=10),
             ) as s:
+              for _attempt in range(3):
+                if _attempt:
+                    res_ip = self._new_res_ip()
+                    idh = self._res_ip_headers(res_ip)
+                    job.log(f"🔁 gplinks attempt {_attempt + 1}/3 via NEW residential proxy identity {res_ip}")
+
                 job.log(f"Opening https://gplinks.co/{alias}")
                 lid = pid = vid = ""
                 pages = 3
                 blog_url = "https://skrresults.com/"
                 for _h_try in range(3):
-                    async with _GPLINKS_HANDSHAKE_LOCK:
-                        st1, _, b1 = await _req_retry(
-                            s, "GET", f"https://gplinks.co/{alias}", allow_redirects=False
-                        )
-                        if st1 == 404 or "not found" in b1.lower()[:600]:
-                            raise BypassError("Shortener link not found (404 on gplinks.co)")
-                        st2, h2, _ = await _req_retry(
-                            s,
-                            "GET",
-                            f"https://gplinks.co/{alias}?skip_sub=1",
-                            headers={"Referer": f"https://gplinks.co/{alias}"},
-                            allow_redirects=False,
-                        )
-                        loc2 = (h2.get("Location") or h2.get("location") or "").strip()
-                        if loc2.startswith(("http://", "https://")) and "gplinks" not in host_of(loc2):
-                            p_b = urlparse(loc2)
-                            if p_b.hostname:
-                                blog_url = f"{p_b.scheme}://{p_b.hostname}/"
-                        await _req_retry(
-                            s, "GET", blog_url, headers={"Referer": "https://gplinks.co/"}, allow_redirects=False
-                        )
-                        cookies = {c.key: c.value for c in jar}
-                        lid = cookies.get("lid") or alias
-                        pid = cookies.get("pid") or ""
-                        vid = cookies.get("vid") or ""
-                        try:
-                            pages = int(cookies.get("pages") or 3)
-                        except Exception:
-                            pages = 3
-                        await asyncio.sleep(2.5)
+                    st1, _, b1 = await _req_retry(
+                        s, "GET", f"https://gplinks.co/{alias}", headers=_h(), allow_redirects=False
+                    )
+                    if st1 == 404 or "not found" in (b1 or "").lower()[:600]:
+                        raise BypassError("Shortener link not found (404 on gplinks.co)")
+                    st2, h2, _ = await _req_retry(
+                        s, "GET", f"https://gplinks.co/{alias}?skip_sub=1",
+                        headers=_h({"Referer": f"https://gplinks.co/{alias}"}),
+                        allow_redirects=False,
+                    )
+                    loc2 = (h2.get("Location") or h2.get("location") or "").strip()
+                    if loc2.startswith(("http://", "https://")) and "gplinks" not in host_of(loc2):
+                        p_b = urlparse(loc2)
+                        if p_b.hostname:
+                            blog_url = f"{p_b.scheme}://{p_b.hostname}/"
+                            if p_b.hostname not in pin_hosts:
+                                job.log(f"  blog {p_b.hostname} is not on the pinned origin — via CF edge")
+                    await _req_retry(
+                        s, "GET", blog_url, headers=_h({"Referer": "https://gplinks.co/"}),
+                        allow_redirects=False,
+                    )
+                    cookies = {c.key: c.value for c in jar}
+                    lid = cookies.get("lid") or alias
+                    pid = cookies.get("pid") or ""
+                    vid = cookies.get("vid") or ""
+                    try:
+                        pages = int(cookies.get("pages") or 3)
+                    except Exception:
+                        pages = 3
                     if pid and vid:
                         break
-                    await asyncio.sleep(2.5)
+                    await asyncio.sleep(1.0)
 
                 if not (pid and vid):
-                    return False
+                    job.log("  ⚠ gplinks handshake returned no pid/vid — rotating identity")
+                    continue
 
-                t_handshake = time.monotonic()
+                pages = max(1, min(pages, 6))
                 job.steps.append(f"https://gplinks.co/{alias}")
                 job.steps.append(blog_url)
-                wait_needed = max(30 * pages + 2, 92)
+                wait_needed = max(28 * pages + 4, 60)
                 job.log(
-                    f"Waiting {wait_needed}s on {host_of(blog_url)} for gplinks.co {pages}-step verification timer…"
+                    f"⏳ gplinks server-enforced verification window {wait_needed}s "
+                    f"({pages} steps on {host_of(blog_url)}) — Turnstile solving in parallel"
                 )
 
-                pre_wait = max(1.0, wait_needed - 22.0)
-                while time.monotonic() - t_handshake < pre_wait:
-                    rem_p = pre_wait - (time.monotonic() - t_handshake)
-                    await asyncio.sleep(min(15.0, rem_p))
-
+                # Turnstile in parallel with the window (token stays valid ~300s)
                 ts_task = None
                 if self.solver:
                     ts_task = asyncio.create_task(
                         self.solver.solve_turnstile("0x4AAAAAAAynCEcs0RV-UleY", f"https://gplinks.co/{lid}")
                     )
 
-                while time.monotonic() - t_handshake < wait_needed:
-                    rem_w = wait_needed - (time.monotonic() - t_handshake)
-                    await asyncio.sleep(min(10.0, rem_w))
+                t_wait = time.monotonic()
+                while time.monotonic() - t_wait < wait_needed:
+                    await asyncio.sleep(min(10.0, max(0.2, wait_needed - (time.monotonic() - t_wait))))
 
                 for step_i in range(1, pages + 1):
-                    data_step = {
-                        "form_name": "ads-track-data",
-                        "step_id": str(step_i),
-                        "ad_impressions": "2",
-                        "visitor_id": vid,
-                        "next_target": "",
-                    }
                     await _req_retry(
-                        s,
-                        "POST",
-                        blog_url,
-                        data=data_step,
-                        headers={"Referer": blog_url, "Origin": blog_url.rstrip("/")},
+                        s, "POST", blog_url, data=_steps_payload(step_i, vid),
+                        headers=_h({"Referer": blog_url, "Origin": blog_url.rstrip("/")}),
                         allow_redirects=False,
                     )
-                    await asyncio.sleep(0.9)
+                    await asyncio.sleep(0.6)
 
                 tok = None
                 if ts_task is not None:
@@ -6630,94 +6750,102 @@ class Bypasser:
                         tok = None
 
                 final_url = f"https://gplinks.co/{lid}?pid={pid}&vid={vid}"
-                async with _GPLINKS_FINAL_LOCK:
-                    gap = 10.5 - (time.monotonic() - _GPLINKS_LAST_FINAL)
-                    if gap > 0:
-                        await asyncio.sleep(gap)
+                st_f, body_f = 0, ""
+                for _f_try in range(3):
                     st_f, hdr_f, body_f = await _req_retry(
-                        s, "GET", final_url, headers={"Referer": blog_url}, allow_redirects=False
+                        s, "GET", final_url, headers=_h({"Referer": blog_url}), allow_redirects=False
                     )
-                    if st_f != 200 or "go-link" not in body_f:
-                        await asyncio.sleep(5.0)
-                        for step_i in range(1, pages + 1):
-                            await _req_retry(
-                                s,
-                                "POST",
-                                blog_url,
-                                data={
-                                    "form_name": "ads-track-data",
-                                    "step_id": str(step_i),
-                                    "ad_impressions": "2",
-                                    "visitor_id": vid,
-                                    "next_target": "",
-                                },
-                                headers={"Referer": blog_url, "Origin": blog_url.rstrip("/")},
-                                allow_redirects=False,
-                            )
-                            await asyncio.sleep(0.8)
-                        st_f, hdr_f, body_f = await _req_retry(
-                            s, "GET", final_url, headers={"Referer": blog_url}, allow_redirects=False
+                    if st_f == 200 and "go-link" in body_f:
+                        break
+                    loc_f = (hdr_f.get("Location") or hdr_f.get("location") or "")
+                    m_ec = re.search(r"error_code=([a-z_0-9]+)", loc_f, re.I)
+                    job.log(
+                        f"  ⚠ gplinks final page -> {st_f} "
+                        + (f"error_code={m_ec.group(1)}" if m_ec else short(loc_f, 70) or "no go-link form")
+                    )
+                    if m_ec and m_ec.group(1) == "not_enough_time":
+                        job.log("  ⏳ verification window not satisfied yet — waiting 15s more, re-POSTing steps")
+                        await asyncio.sleep(15.0)
+                    else:
+                        await asyncio.sleep(3.0)
+                    for step_i in range(1, pages + 1):
+                        await _req_retry(
+                            s, "POST", blog_url, data=_steps_payload(step_i, vid),
+                            headers=_h({"Referer": blog_url, "Origin": blog_url.rstrip("/")}),
+                            allow_redirects=False,
                         )
-                    if st_f != 200:
-                        return False
+                        await asyncio.sleep(0.6)
 
-                    m_form = re.search(
-                        r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>', body_f, re.S | re.I
-                    )
-                    if not m_form:
-                        return False
-                    fhtml = m_form.group(1)
-                    inputs = {}
-                    for inp in re.finditer(r"<input[^>]+>", fhtml, re.I):
-                        tag = inp.group(0)
-                        nm = re.search(r'name=["\']([^"\']+)["\']', tag, re.I)
-                        vl = re.search(r'value=["\']([^"\']*)["\']', tag, re.I)
-                        if nm:
-                            inputs[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
+                if st_f != 200 or "go-link" not in body_f:
+                    continue  # rotate identity and retry the whole solve
 
-                    if not tok and self.solver:
-                        m_sk = re.search(r'data-sitekey=["\']([0-3]x[\w-]{10,})["\']', body_f, re.I)
-                        sk = m_sk.group(1) if m_sk else "0x4AAAAAAAynCEcs0RV-UleY"
-                        tok = await self.solver.solve_turnstile(sk, f"https://gplinks.co/{lid}")
-                    if tok:
-                        inputs["cf-turnstile-response"] = tok
-                        inputs["g-recaptcha-response"] = tok
-                        job.log("Turnstile solved by solver, token injected (1 targets)")
+                m_form = re.search(r'<form[^>]*id=["\']go-link["\'][^>]*>(.*?)</form>', body_f, re.S | re.I)
+                if not m_form:
+                    continue
+                inputs = {}
+                for inp in re.finditer(r"<input[^>]+>", m_form.group(1), re.I):
+                    tag = inp.group(0)
+                    nm = re.search(r'name=["\']([^"\']+)["\']', tag, re.I)
+                    vl = re.search(r'value=["\']([^"\']*)["\']', tag, re.I)
+                    if nm:
+                        inputs[nm.group(1)] = _html.unescape(vl.group(1)) if vl else ""
 
-                    job.steps.append(final_url)
-                    job.log("Reached the shortener's final page")
-                    job.log("Page timer detected — running in real time (server-checked)")
-                    await asyncio.sleep(4.2)
+                if not tok and self.solver:
+                    m_sk = re.search(r'data-sitekey=["\']([0-3]x[\w-]{10,})["\']', body_f, re.I)
+                    sk = m_sk.group(1) if m_sk else "0x4AAAAAAAynCEcs0RV-UleY"
+                    tok = await self.solver.solve_turnstile(sk, f"https://gplinks.co/{lid}")
+                if tok:
+                    inputs["cf-turnstile-response"] = tok
+                    inputs["g-recaptcha-response"] = tok
+                    job.log("Turnstile solved by solver, token injected (1 targets)")
 
-                    headers_go = {
+                job.steps.append(final_url)
+                job.log("Reached the shortener's final page")
+                job.log("Page timer detected — running in real time (server-checked)")
+                await asyncio.sleep(4.2)
+
+                ck2 = {c.key: c.value for c in jar}
+                job.log("Submitting final form to fetch destination…")
+                for _go_att in range(3):
+                    headers_go = _h({
                         "Referer": final_url,
                         "Origin": "https://gplinks.co",
                         "X-Requested-With": "XMLHttpRequest",
+                        "X-CSRF-Token": ck2.get("csrfToken", inputs.get("_csrfToken", "")),
                         "Accept": "application/json, text/javascript, */*; q=0.01",
                         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    }
-                    job.log("Submitting final form to fetch destination…")
-                    for _go_att in range(3):
-                        async with s.post(
-                            "https://gplinks.co/links/go",
-                            data=inputs,
-                            headers=headers_go,
-                            allow_redirects=False,
-                        ) as rgo:
-                            _GPLINKS_LAST_FINAL = time.monotonic()
-                            if rgo.status in (403, 429):
-                                await asyncio.sleep(8.0)
-                                continue
-                            go_data = await rgo.json(content_type=None)
-                        if isinstance(go_data, dict) and go_data.get("status") == "success" and go_data.get("url"):
-                            dest = str(go_data["url"]).strip()
-                            if await self._finalize_or_unwrap_dest(job, dest, final_url, "links/go API"):
-                                return True
-                        break
+                    })
+                    st_go, _, body_go = await _req_retry(
+                        s, "POST", "https://gplinks.co/links/go", data=inputs,
+                        headers=headers_go, retries=1, allow_redirects=False,
+                    )
+                    if st_go in (403, 429):
+                        res_ip = self._new_res_ip()
+                        idh = self._res_ip_headers(res_ip)
+                        job.log(f"  ⚠ /links/go {st_go} — rotating to NEW residential identity {res_ip}")
+                        await asyncio.sleep(2.0)
+                        continue
+                    try:
+                        go_data = json.loads(body_go)
+                    except Exception:
+                        go_data = {}
+                    if isinstance(go_data, dict) and go_data.get("status") == "success" and go_data.get("url"):
+                        dest = str(go_data["url"]).strip()
+                        if await self._finalize_or_unwrap_dest(job, dest, final_url, "links/go API"):
+                            return True
+                        job.set_result(dest, "links/go API")
+                        return True
+                    job.log(f"  ⚠ /links/go -> {st_go} {short(body_go, 140)}")
+                    break
+              return False
         except BypassError:
             raise
-        except Exception:
-            pass
+        except Exception as _gpl_e:
+            # rev37: surface WHY it died (was silently swallowed)
+            try:
+                job.log(f"  ⚠ gplinks direct chain aborted ({res_ip}): {type(_gpl_e).__name__}: {str(_gpl_e)[:110]}")
+            except Exception:
+                pass
         return False
 
     async def _unwrap_simple_redirector(self, url: str) -> str | None:
@@ -6772,7 +6900,8 @@ class Bypasser:
             or (DYNAMIC_RULES.get("origin_ips") or {}).get(job.base)
             or "159.198.79.28"
         )
-        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        fake_ip = self._new_res_ip()  # rev34: NEW residential identity for EVERY solve
+        job.log(f"🔀 {job.base} solve via NEW residential proxy identity {fake_ip}")
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -6902,7 +7031,8 @@ class Bypasser:
             or (DYNAMIC_RULES.get("origin_ips") or {}).get("go.babylinks.in")
             or "66.116.207.125"
         )
-        fake_ip = f"49.36.{random.randint(10, 240)}.{random.randint(10, 240)}"
+        fake_ip = self._new_res_ip()  # rev34: NEW residential identity for EVERY babylinks solve
+        job.log(f"🔀 babylinks solve via NEW residential proxy identity {fake_ip}")
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -6914,8 +7044,7 @@ class Bypasser:
             "Host": "babylinks.in",
             "User-Agent": ua,
             "Accept-Language": "en-US,en;q=0.9",
-            "CF-Connecting-IP": fake_ip,
-            "CF-IPCountry": "IN",
+            **self._res_ip_headers(fake_ip),
         }
         try:
             jar_blog = aiohttp.CookieJar(unsafe=True)
@@ -6964,8 +7093,7 @@ class Bypasser:
                                 "Host": b_host,
                                 "User-Agent": ua,
                                 "Accept-Language": "en-US,en;q=0.9",
-                                "CF-Connecting-IP": fake_ip,
-                                "CF-IPCountry": "IN",
+                                **self._res_ip_headers(fake_ip),
                                 "Cookie": f"tp1={alias}",
                             }
                             async with s_orig.get(
@@ -7074,8 +7202,7 @@ class Bypasser:
                             "Host": "go.babylinks.in",
                             "User-Agent": ua,
                             "Accept-Language": "en-US,en;q=0.9",
-                            "CF-Connecting-IP": fake_ip,
-                            "CF-IPCountry": "IN",
+                            **self._res_ip_headers(fake_ip),
                             "Referer": ref_try,
                             "Cookie": cookie_str,
                         }
@@ -7134,10 +7261,16 @@ class Bypasser:
                         dest = str(dg2["url"]).strip()
                         if await self._finalize_or_unwrap_dest(job, dest, wp_url, "links/go API"):
                             return True
+                    else:
+                        job.log(f"  ⚠ babylinks /links/go rejected: {str(dg2)[:140]}")
         except BypassError:
             raise
-        except Exception:
-            pass
+        except Exception as _bb_e:
+            # rev34: surface WHY it died (was silently swallowed -> browser tier -> datacenter IP)
+            try:
+                job.log(f"  ⚠ babylinks chain aborted ({fake_ip}): {type(_bb_e).__name__}: {str(_bb_e)[:110]}")
+            except Exception:
+                pass
         return False
 
     async def _try_universal_dynamic_direct(self, job: Job) -> bool:
@@ -10844,7 +10977,7 @@ class Bypasser:
                     pass
                 finally:
                     try:
-                        asyncio.create_task(s.close())
+                        await s.close()
                     except Exception:
                         pass
                 return None, w_rem, False
